@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
+from time import monotonic
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from itsdangerous import URLSafeSerializer
+from itsdangerous import URLSafeTimedSerializer
 
 from app.api import SESSION_COOKIE_NAME, router as api_router
 from app.db import connect, default_db_path, initialize_database
@@ -18,6 +19,8 @@ frontend_out_dir = Path(__file__).resolve().parents[2] / "frontend" / "out"
 async def lifespan(app: FastAPI):
     app.state.db = connect(app.state.db_path)
     initialize_database(app.state.db)
+    app.state.rate_limit_store = {}
+    app.state.rate_limit_clock = monotonic
     try:
         yield
     finally:
@@ -28,12 +31,30 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     app = FastAPI(title="Project Management MVP", lifespan=lifespan)
     app.state.db_path = db_path if db_path is not None else default_db_path()
     app.state.settings = load_app_settings()
-    app.state.session_serializer = URLSafeSerializer(
+    app.state.session_serializer = URLSafeTimedSerializer(
         app.state.settings.session_secret,
         salt=SESSION_COOKIE_NAME,
     )
     app.state.openrouter_settings = load_openrouter_settings(app.state.settings)
     app.state.openrouter_client = OpenRouterClient(app.state.openrouter_settings)
+
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+        )
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        if app.state.settings.session_cookie_secure:
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
+        return response
+
     app.include_router(api_router)
 
     if frontend_out_dir.exists():

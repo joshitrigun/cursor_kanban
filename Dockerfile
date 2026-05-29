@@ -16,6 +16,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN pip install --no-cache-dir uv
 
+RUN groupadd --system appuser && useradd --system --gid appuser --create-home appuser
+
 WORKDIR /app/backend
 
 COPY backend/pyproject.toml ./pyproject.toml
@@ -23,6 +25,10 @@ RUN uv sync --no-dev
 
 COPY backend /app/backend
 COPY --from=frontend-builder /app/frontend/out /app/frontend/out
+
+RUN chown -R appuser:appuser /app
+
+USER appuser
 
 EXPOSE 8000
 

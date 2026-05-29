@@ -8,6 +8,7 @@ import app.db as db_module
 from app.db import get_chat_history_for_username
 from app.main import create_app
 from app.openrouter import OpenRouterConfigError
+from app.settings import AppSettingsError
 
 
 @pytest.fixture
@@ -29,6 +30,10 @@ def test_health_route_returns_ok_payload(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "service": "backend"}
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
 
 
 def test_static_asset_is_served(client: TestClient) -> None:
@@ -54,9 +59,49 @@ def test_login_sets_authenticated_session_cookie(client: TestClient) -> None:
     assert response.json() == {"authenticated": True, "username": "user"}
     assert response.cookies.get("pm_session") is not None
     assert response.cookies.get("pm_session") != "user"
+    assert "Max-Age=28800" in response.headers["set-cookie"]
 
     session_response = client.get("/api/session")
     assert session_response.json() == {"authenticated": True, "username": "user"}
+
+
+def test_login_rate_limit_returns_429_after_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PM_LOGIN_RATE_LIMIT_ATTEMPTS", "2")
+    monkeypatch.setenv("PM_LOGIN_RATE_LIMIT_WINDOW_SECONDS", "60")
+
+    with TestClient(create_app()) as client:
+        first_response = client.post(
+            "/api/login",
+            json={"username": "user", "password": "wrong"},
+        )
+        second_response = client.post(
+            "/api/login",
+            json={"username": "user", "password": "wrong"},
+        )
+        third_response = client.post(
+            "/api/login",
+            json={"username": "user", "password": "wrong"},
+        )
+
+    assert first_response.status_code == 401
+    assert second_response.status_code == 401
+    assert third_response.status_code == 429
+    assert int(third_response.headers["retry-after"]) in {59, 60}
+
+
+def test_login_rotates_session_cookie(client: TestClient) -> None:
+    first_response = client.post(
+        "/api/login",
+        json={"username": "user", "password": "password"},
+    )
+    second_response = client.post(
+        "/api/login",
+        json={"username": "user", "password": "password"},
+    )
+
+    assert first_response.cookies.get("pm_session") != second_response.cookies.get("pm_session")
 
 
 def test_tampered_session_cookie_is_rejected(client: TestClient) -> None:
@@ -88,7 +133,7 @@ def test_logout_clears_session_cookie(client: TestClient) -> None:
         json={"username": "user", "password": "password"},
     )
 
-    response = client.post("/api/logout")
+    response = client.post("/api/logout", headers={"Origin": "http://testserver"})
 
     assert response.status_code == 204
     session_response = client.get("/api/session")
@@ -151,7 +196,11 @@ def test_board_update_persists_and_increments_version(client: TestClient) -> Non
         ],
     }
 
-    update_response = client.put("/api/board", json={"board": updated_board})
+    update_response = client.put(
+        "/api/board",
+        json={"board": updated_board},
+        headers={"Origin": "http://testserver"},
+    )
 
     assert update_response.status_code == 200
     assert update_response.json()["boardVersion"] == 2
@@ -176,7 +225,11 @@ def test_board_persists_across_app_restarts(db_path: Path) -> None:
                 *board["columns"][1:],
             ],
         }
-        first_client.put("/api/board", json={"board": updated_board})
+        first_client.put(
+            "/api/board",
+            json={"board": updated_board},
+            headers={"Origin": "http://testserver"},
+        )
 
     with TestClient(create_app(db_path)) as second_client:
         second_client.post("/api/login", json={"username": "user", "password": "password"})
@@ -208,7 +261,10 @@ async def test_ai_connectivity_returns_backend_only_result(client: TestClient) -
     client.app.state.openrouter_client = StubOpenRouterClient()
     client.post("/api/login", json={"username": "user", "password": "password"})
 
-    response = client.post("/api/ai/connectivity-test")
+    response = client.post(
+        "/api/ai/connectivity-test",
+        headers={"Origin": "http://testserver"},
+    )
 
     assert response.status_code == 200
     assert response.json() == {
@@ -227,10 +283,45 @@ async def test_ai_connectivity_handles_missing_key(client: TestClient) -> None:
     client.app.state.openrouter_client = StubOpenRouterClient()
     client.post("/api/login", json={"username": "user", "password": "password"})
 
-    response = client.post("/api/ai/connectivity-test")
+    response = client.post(
+        "/api/ai/connectivity-test",
+        headers={"Origin": "http://testserver"},
+    )
 
     assert response.status_code == 500
     assert response.json() == {"detail": "OPENROUTER_API_KEY is not configured."}
+
+
+@pytest.mark.anyio
+async def test_ai_rate_limit_returns_429_after_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PM_AI_RATE_LIMIT_ATTEMPTS", "1")
+    monkeypatch.setenv("PM_AI_RATE_LIMIT_WINDOW_SECONDS", "60")
+
+    class StubOpenRouterClient:
+        async def run_connectivity_test(self) -> dict[str, str]:
+            return {
+                "model": "openai/gpt-oss-120b",
+                "prompt": "What is 2+2? Respond with digits only.",
+                "reply": "4",
+            }
+
+    with TestClient(create_app()) as client:
+        client.app.state.openrouter_client = StubOpenRouterClient()
+        client.post("/api/login", json={"username": "user", "password": "password"})
+
+        first_response = client.post(
+            "/api/ai/connectivity-test",
+            headers={"Origin": "http://testserver"},
+        )
+        second_response = client.post(
+            "/api/ai/connectivity-test",
+            headers={"Origin": "http://testserver"},
+        )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 429
 
 
 def test_ai_chat_requires_authentication(client: TestClient) -> None:
@@ -251,7 +342,11 @@ def test_ai_chat_returns_message_without_mutating_board(client: TestClient) -> N
     client.post("/api/login", json={"username": "user", "password": "password"})
 
     before = client.get("/api/board").json()
-    response = client.post("/api/ai/chat", json={"message": "Summarize the board."})
+    response = client.post(
+        "/api/ai/chat",
+        json={"message": "Summarize the board."},
+        headers={"Origin": "http://testserver"},
+    )
     after = client.get("/api/board").json()
 
     assert response.status_code == 200
@@ -293,7 +388,11 @@ def test_ai_chat_applies_validated_board_update(client: TestClient) -> None:
     client.app.state.openrouter_client = StubOpenRouterClient()
     client.post("/api/login", json={"username": "user", "password": "password"})
 
-    response = client.post("/api/ai/chat", json={"message": "Rename the first column to Ready."})
+    response = client.post(
+        "/api/ai/chat",
+        json={"message": "Rename the first column to Ready."},
+        headers={"Origin": "http://testserver"},
+    )
     persisted = client.get("/api/board").json()
 
     assert response.status_code == 200
@@ -316,7 +415,11 @@ def test_ai_chat_rejects_invalid_model_output(client: TestClient) -> None:
     client.app.state.openrouter_client = StubOpenRouterClient()
     client.post("/api/login", json={"username": "user", "password": "password"})
 
-    response = client.post("/api/ai/chat", json={"message": "Do something unsafe."})
+    response = client.post(
+        "/api/ai/chat",
+        json={"message": "Do something unsafe."},
+        headers={"Origin": "http://testserver"},
+    )
 
     assert response.status_code == 502
     assert response.json() == {"detail": "AI response did not match the required schema."}
@@ -329,7 +432,11 @@ def test_chat_history_returns_persisted_messages(client: TestClient) -> None:
 
     client.app.state.openrouter_client = StubOpenRouterClient()
     client.post("/api/login", json={"username": "user", "password": "password"})
-    client.post("/api/ai/chat", json={"message": "Summarize the board."})
+    client.post(
+        "/api/ai/chat",
+        json={"message": "Summarize the board."},
+        headers={"Origin": "http://testserver"},
+    )
 
     response = client.get("/api/chat-history")
 
@@ -361,3 +468,99 @@ def test_board_route_returns_404_for_inconsistent_missing_board(
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Board not found for username 'user'."}
+
+
+def test_create_app_rejects_default_password_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PM_ENV", "production")
+    monkeypatch.delenv("PM_AUTH_PASSWORD", raising=False)
+    monkeypatch.setenv("PM_SESSION_SECRET", "s" * 32)
+
+    with pytest.raises(AppSettingsError, match="PM_AUTH_PASSWORD"):
+        create_app()
+
+
+def test_create_app_rejects_weak_session_secret_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PM_ENV", "production")
+    monkeypatch.setenv("PM_AUTH_PASSWORD", "StrongPassword123!")
+    monkeypatch.setenv("PM_SESSION_SECRET", "too-short")
+
+    with pytest.raises(AppSettingsError, match="PM_SESSION_SECRET"):
+        create_app()
+
+
+def test_login_sets_secure_cookie_outside_development(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PM_ENV", "production")
+    monkeypatch.setenv("PM_AUTH_PASSWORD", "StrongPassword123!")
+    monkeypatch.setenv("PM_SESSION_SECRET", "s" * 32)
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/api/login",
+            json={"username": "user", "password": "StrongPassword123!"},
+        )
+
+    assert response.status_code == 200
+    assert "Secure" in response.headers["set-cookie"]
+    assert response.headers["strict-transport-security"] == "max-age=31536000; includeSubDomains"
+
+
+def test_production_does_not_load_dotenv_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PM_ENV", "production")
+    monkeypatch.setenv("PM_AUTH_PASSWORD", "StrongPassword123!")
+    monkeypatch.setenv("PM_SESSION_SECRET", "s" * 32)
+    monkeypatch.setenv("PM_AUTH_USERNAME", "env-user")
+
+    settings = create_app().state.settings
+
+    assert settings.auth_username == "env-user"
+
+
+def test_production_rejects_state_change_without_origin_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PM_ENV", "production")
+    monkeypatch.setenv("PM_AUTH_PASSWORD", "StrongPassword123!")
+    monkeypatch.setenv("PM_SESSION_SECRET", "s" * 32)
+
+    with TestClient(create_app()) as client:
+        login_response = client.post(
+            "/api/login",
+            json={"username": "user", "password": "StrongPassword123!"},
+        )
+        client.cookies.set("pm_session", login_response.cookies.get("pm_session"))
+        board = client.get("/api/board").json()["board"]
+        response = client.put("/api/board", json={"board": board})
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Origin or Referer header required."}
+
+
+def test_production_accepts_same_origin_state_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PM_ENV", "production")
+    monkeypatch.setenv("PM_AUTH_PASSWORD", "StrongPassword123!")
+    monkeypatch.setenv("PM_SESSION_SECRET", "s" * 32)
+
+    with TestClient(create_app()) as client:
+        login_response = client.post(
+            "/api/login",
+            json={"username": "user", "password": "StrongPassword123!"},
+        )
+        client.cookies.set("pm_session", login_response.cookies.get("pm_session"))
+        board = client.get("/api/board").json()["board"]
+        response = client.put(
+            "/api/board",
+            json={"board": board},
+            headers={"Origin": "http://testserver"},
+        )
+
+    assert response.status_code == 200
