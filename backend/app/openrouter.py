@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import httpx
-from dotenv import load_dotenv
 
-DEFAULT_OPENROUTER_MODEL = "openai/gpt-oss-120b"
-DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+from app.settings import AppSettings, DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_HTTP_REFERER, DEFAULT_OPENROUTER_MODEL
 
 
 class OpenRouterConfigError(RuntimeError):
@@ -23,11 +17,18 @@ class OpenRouterSettings:
     api_key: str | None
     model: str = DEFAULT_OPENROUTER_MODEL
     base_url: str = DEFAULT_OPENROUTER_BASE_URL
+    http_referer: str = DEFAULT_OPENROUTER_HTTP_REFERER
     app_name: str = "Project Management MVP"
 
 
-def load_openrouter_settings() -> OpenRouterSettings:
-    return OpenRouterSettings(api_key=os.getenv("OPENROUTER_API_KEY"))
+def load_openrouter_settings(settings: AppSettings) -> OpenRouterSettings:
+    return OpenRouterSettings(
+        api_key=settings.openrouter_api_key,
+        model=settings.openrouter_model,
+        base_url=settings.openrouter_base_url,
+        http_referer=settings.openrouter_http_referer,
+        app_name=settings.openrouter_app_name,
+    )
 
 
 def extract_message_content(response_json: dict[str, Any]) -> str:
@@ -72,7 +73,7 @@ class OpenRouterClient:
         headers = {
             "Authorization": f"Bearer {self.settings.api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost:8000",
+            "HTTP-Referer": self.settings.http_referer,
             "X-Title": self.settings.app_name,
         }
         payload = {

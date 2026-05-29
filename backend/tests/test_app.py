@@ -3,17 +3,11 @@ from pathlib import Path
 import sqlite3
 import pytest
 from fastapi.testclient import TestClient
+import app.db as db_module
 
 from app.db import get_chat_history_for_username
 from app.main import create_app
 from app.openrouter import OpenRouterConfigError
-
-
-@pytest.fixture
-def client(tmp_path: Path):
-    app = create_app(tmp_path / "test.db")
-    with TestClient(app) as test_client:
-        yield test_client
 
 
 @pytest.fixture
@@ -58,10 +52,21 @@ def test_login_sets_authenticated_session_cookie(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"authenticated": True, "username": "user"}
-    assert response.cookies.get("pm_session") == "user"
+    assert response.cookies.get("pm_session") is not None
+    assert response.cookies.get("pm_session") != "user"
 
     session_response = client.get("/api/session")
     assert session_response.json() == {"authenticated": True, "username": "user"}
+
+
+def test_tampered_session_cookie_is_rejected(client: TestClient) -> None:
+    client.cookies.set("pm_session", "user")
+
+    session_response = client.get("/api/session")
+    board_response = client.get("/api/board")
+
+    assert session_response.json() == {"authenticated": False, "username": None}
+    assert board_response.status_code == 401
 
 
 def test_login_rejects_invalid_credentials(client: TestClient) -> None:
@@ -91,7 +96,8 @@ def test_logout_clears_session_cookie(client: TestClient) -> None:
 
 
 def test_database_is_created_on_startup(db_path: Path, client: TestClient) -> None:
-    assert db_path.exists()
+    with TestClient(create_app(db_path)):
+        assert db_path.exists()
 
     with sqlite3.connect(db_path) as connection:
         tables = {
@@ -257,7 +263,7 @@ def test_ai_chat_returns_message_without_mutating_board(client: TestClient) -> N
         "schemaVersion": before["schemaVersion"],
     }
     assert after == before
-    assert get_chat_history_for_username(client.app.state.db_path, "user") == [
+    assert get_chat_history_for_username(client.app.state.db, "user") == [
         {"role": "user", "content": "Summarize the board."},
         {"role": "assistant", "content": "Board is in good shape."},
     ]
@@ -298,6 +304,9 @@ def test_ai_chat_applies_validated_board_update(client: TestClient) -> None:
     assert persisted["boardVersion"] == 2
     assert persisted["board"]["columns"][0]["title"] == "Ready"
 
+    history = get_chat_history_for_username(client.app.state.db, "user")
+    assert history[-1]["boardMutation"]["columns"][0]["title"] == "Ready"
+
 
 def test_ai_chat_rejects_invalid_model_output(client: TestClient) -> None:
     class StubOpenRouterClient:
@@ -331,3 +340,24 @@ def test_chat_history_returns_persisted_messages(client: TestClient) -> None:
             {"role": "assistant", "content": "Board is in good shape."},
         ]
     }
+
+
+def test_board_route_returns_404_for_inconsistent_missing_board(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client.post("/api/login", json={"username": "user", "password": "password"})
+
+    def fake_ensure_user_and_board(
+        connection: sqlite3.Connection,
+        username: str,
+    ) -> dict[str, str]:
+        del connection, username
+        return {"id": "missing-user", "username": "user"}
+
+    monkeypatch.setattr(db_module, "ensure_user_and_board", fake_ensure_user_and_board)
+
+    response = client.get("/api/board")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Board not found for username 'user'."}

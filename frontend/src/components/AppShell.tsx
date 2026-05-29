@@ -34,11 +34,13 @@ const unauthenticatedSession: SessionResponse = {
   username: null,
 };
 
+const BOARD_SAVE_DEBOUNCE_MS = 300;
+
 export const AppShell = () => {
   const [session, setSession] = useState<SessionResponse | null>(null);
   const [board, setBoard] = useState<BoardData | null>(null);
   const [username, setUsername] = useState("user");
-  const [password, setPassword] = useState("password");
+  const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isBoardLoading, setIsBoardLoading] = useState(false);
@@ -48,6 +50,9 @@ export const AppShell = () => {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiErrorMessage, setAiErrorMessage] = useState<string | null>(null);
   const saveQueueRef = useRef(Promise.resolve());
+  const pendingBoardRef = useRef<BoardData | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debounceResolveRef = useRef<(() => void) | null>(null);
 
   const resetChatState = () => {
     setChatMessages([]);
@@ -101,7 +106,8 @@ export const AppShell = () => {
   const sendChatMessage = async (text: string) => {
     await saveQueueRef.current.catch(() => undefined);
 
-    setChatMessages((prev) => [...prev, { role: "user", content: text }]);
+    const optimisticMessage = { role: "user" as const, content: text };
+    setChatMessages((prev) => [...prev, optimisticMessage]);
     setIsAiLoading(true);
     setAiErrorMessage(null);
 
@@ -126,43 +132,92 @@ export const AppShell = () => {
         setBoard(data.board);
       }
     } catch {
+      setChatMessages((prev) => {
+        for (let index = prev.length - 1; index >= 0; index -= 1) {
+          const message = prev[index];
+          if (
+            message.role === optimisticMessage.role &&
+            message.content === optimisticMessage.content
+          ) {
+            return [...prev.slice(0, index), ...prev.slice(index + 1)];
+          }
+        }
+
+        return prev;
+      });
       setAiErrorMessage("Unable to reach the AI. Try again.");
     } finally {
       setIsAiLoading(false);
     }
   };
 
+  const flushPendingBoard = async () => {
+    const nextBoard = pendingBoardRef.current;
+    pendingBoardRef.current = null;
+
+    if (!nextBoard) {
+      return;
+    }
+
+    setIsSavingBoard(true);
+
+    try {
+      const response = await fetch("/api/board", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({ board: nextBoard }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to save board.");
+      }
+
+      const persistedBoard = (await response.json()) as BoardResponse;
+      setBoard(persistedBoard.board);
+    } catch {
+      setBoardErrorMessage("Unable to save board. Reload to retry.");
+    } finally {
+      setIsSavingBoard(false);
+    }
+  };
+
+  const scheduleBoardSave = () => {
+    if (!debounceResolveRef.current) {
+      const debouncePromise = new Promise<void>((resolve) => {
+        debounceResolveRef.current = resolve;
+      });
+
+      saveQueueRef.current = saveQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          await debouncePromise;
+          await flushPendingBoard();
+        });
+    }
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    debounceTimerRef.current = setTimeout(() => {
+      debounceTimerRef.current = null;
+      const resolve = debounceResolveRef.current;
+      debounceResolveRef.current = null;
+      resolve?.();
+    }, BOARD_SAVE_DEBOUNCE_MS);
+
+    return saveQueueRef.current;
+  };
+
   const persistBoard = async (nextBoard: BoardData) => {
     setBoard(nextBoard);
+    pendingBoardRef.current = nextBoard;
     setBoardErrorMessage(null);
 
-    saveQueueRef.current = saveQueueRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        setIsSavingBoard(true);
-
-        try {
-          const response = await fetch("/api/board", {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            credentials: "same-origin",
-            body: JSON.stringify({ board: nextBoard }),
-          });
-
-          if (!response.ok) {
-            throw new Error("Unable to save board.");
-          }
-
-          const persistedBoard = (await response.json()) as BoardResponse;
-          setBoard(persistedBoard.board);
-        } catch {
-          setBoardErrorMessage("Unable to save board. Reload to retry.");
-        } finally {
-          setIsSavingBoard(false);
-        }
-      });
+    scheduleBoardSave();
 
     await saveQueueRef.current;
   };
@@ -213,6 +268,14 @@ export const AppShell = () => {
     void fetchBoard();
     void fetchChatHistory();
   }, [session?.authenticated]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
