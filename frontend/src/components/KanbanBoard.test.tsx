@@ -3,15 +3,25 @@ import userEvent from "@testing-library/user-event";
 import { KanbanBoard } from "@/components/KanbanBoard";
 
 const getFirstColumn = () => screen.getAllByTestId(/column-/i)[0];
+const showAllDays = async () => {
+  await userEvent.click(screen.getByRole("button", { name: /all days/i }));
+};
 
 describe("KanbanBoard", () => {
-  it("renders unscheduled plus six day columns", () => {
+  it("opens on the first day itinerary", () => {
     render(<KanbanBoard />);
+    expect(screen.getByRole("heading", { name: /day 1/i })).toBeInTheDocument();
+  });
+
+  it("renders unscheduled plus six day columns", async () => {
+    render(<KanbanBoard />);
+    await showAllDays();
     expect(screen.getAllByTestId(/column-/i)).toHaveLength(7);
   });
 
   it("renames a column", async () => {
     render(<KanbanBoard />);
+    await showAllDays();
     const column = getFirstColumn();
     const input = within(column).getByLabelText("Column title");
     await userEvent.clear(input);
@@ -21,6 +31,7 @@ describe("KanbanBoard", () => {
 
   it("adds and removes a card", async () => {
     render(<KanbanBoard />);
+    await showAllDays();
     const column = getFirstColumn();
     const addButton = within(column).getByRole("button", {
       name: /add a card/i,

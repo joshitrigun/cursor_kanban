@@ -40,7 +40,7 @@ export const KanbanBoard = ({
 }: KanbanBoardProps) => {
   const [internalBoard, setInternalBoard] = useState<BoardData>(() => initialData);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<string>("all");
+  const [activeTab, setActiveTab] = useState<string>("col-day-1");
   const resolvedBoard = board ?? internalBoard;
 
   const sensors = useSensors(
