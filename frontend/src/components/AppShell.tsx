@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState, useCallback } from "react";
 import { KanbanBoard } from "@/components/KanbanBoard";
 import { ChatSidebar, type ChatMessage } from "@/components/ChatSidebar";
 import type { BoardData } from "@/lib/kanban";
@@ -54,6 +54,7 @@ export const AppShell = () => {
   const [aiErrorMessage, setAiErrorMessage] = useState<string | null>(null);
   const [quickAddText, setQuickAddText] = useState("");
   const [isQuickAdding, setIsQuickAdding] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const saveQueueRef = useRef(Promise.resolve());
   const pendingBoardRef = useRef<BoardData | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -282,6 +283,19 @@ export const AppShell = () => {
     };
   }, []);
 
+  const toggleChat = useCallback(() => setIsChatOpen((v) => !v), []);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        toggleChat();
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [toggleChat]);
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsSubmitting(true);
@@ -390,10 +404,10 @@ export const AppShell = () => {
     }
 
     return (
-      <div className="flex min-h-screen flex-col xl:flex-row">
-        <div className="flex min-w-0 flex-1 flex-col xl:min-h-screen">
-          <div className="border-b border-[var(--stroke)] bg-white px-6 py-3">
-            <form onSubmit={handleQuickAdd} className="flex gap-3">
+      <div className="flex min-h-screen flex-col">
+        <div className="border-b border-[var(--stroke)] bg-white px-6 py-3">
+          <div className="flex items-center gap-3">
+            <form onSubmit={handleQuickAdd} className="flex flex-1 gap-3">
               <input
                 type="text"
                 value={quickAddText}
@@ -410,23 +424,39 @@ export const AppShell = () => {
                 {isQuickAdding ? "Adding..." : "Add"}
               </button>
             </form>
+            <button
+              onClick={toggleChat}
+              title="Toggle AI Chat (⌘K)"
+              className={`flex items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-semibold transition ${
+                isChatOpen
+                  ? "border-[var(--primary-blue)] bg-[var(--primary-blue)] text-white"
+                  : "border-[var(--stroke)] bg-white text-[var(--navy-dark)] hover:border-[var(--primary-blue)] hover:text-[var(--primary-blue)]"
+              }`}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 10.5a1.5 1.5 0 0 1-1.5 1.5H4L1 15V2.5A1.5 1.5 0 0 1 2.5 1h10A1.5 1.5 0 0 1 14 2.5v8Z" />
+              </svg>
+              AI
+            </button>
           </div>
-          <div className="flex-1">
-            <KanbanBoard
-              board={board}
-              onBoardChange={persistBoard}
-              username={session.displayName ?? session.username ?? undefined}
-              onLogout={handleLogout}
-              statusMessage={isSavingBoard ? "Saving board" : undefined}
-              errorMessage={boardErrorMessage}
-            />
-          </div>
+        </div>
+        <div className="flex-1">
+          <KanbanBoard
+            board={board}
+            onBoardChange={persistBoard}
+            username={session.displayName ?? session.username ?? undefined}
+            onLogout={handleLogout}
+            statusMessage={isSavingBoard ? "Saving board" : undefined}
+            errorMessage={boardErrorMessage}
+          />
         </div>
         <ChatSidebar
           messages={chatMessages}
           onSendMessage={sendChatMessage}
           isLoading={isAiLoading}
           errorMessage={aiErrorMessage}
+          isOpen={isChatOpen}
+          onClose={() => setIsChatOpen(false)}
         />
       </div>
     );

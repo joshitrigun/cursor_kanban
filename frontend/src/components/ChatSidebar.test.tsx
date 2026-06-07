@@ -11,6 +11,8 @@ describe("ChatSidebar", () => {
         onSendMessage={vi.fn()}
         isLoading={false}
         errorMessage={null}
+        isOpen={true}
+        onClose={vi.fn()}
       />
     );
 
@@ -29,6 +31,8 @@ describe("ChatSidebar", () => {
         onSendMessage={vi.fn()}
         isLoading={false}
         errorMessage={null}
+        isOpen={true}
+        onClose={vi.fn()}
       />
     );
 
@@ -45,6 +49,8 @@ describe("ChatSidebar", () => {
         onSendMessage={onSendMessage}
         isLoading={false}
         errorMessage={null}
+        isOpen={true}
+        onClose={vi.fn()}
       />
     );
 
@@ -61,6 +67,8 @@ describe("ChatSidebar", () => {
         onSendMessage={vi.fn()}
         isLoading={true}
         errorMessage={null}
+        isOpen={true}
+        onClose={vi.fn()}
       />
     );
 
@@ -75,9 +83,28 @@ describe("ChatSidebar", () => {
         onSendMessage={vi.fn()}
         isLoading={false}
         errorMessage="Unable to reach the AI."
+        isOpen={true}
+        onClose={vi.fn()}
       />
     );
 
     expect(screen.getByText("Unable to reach the AI.")).toBeInTheDocument();
+  });
+
+  it("calls onClose when the close button is clicked", async () => {
+    const onClose = vi.fn();
+    render(
+      <ChatSidebar
+        messages={[]}
+        onSendMessage={vi.fn()}
+        isLoading={false}
+        errorMessage={null}
+        isOpen={true}
+        onClose={onClose}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /close chat/i }));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });
