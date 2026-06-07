@@ -31,13 +31,44 @@ export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
       data-testid={`card-${card.id}`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 flex flex-wrap gap-2">
+            {card.status && (
+              <span className="inline-block rounded-full bg-[var(--accent-yellow)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                {card.status}
+              </span>
+            )}
+            {card.ai_tag && (
+              <span className="inline-block rounded-full bg-[var(--blue-primary)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                {card.ai_tag}
+              </span>
+            )}
+          </div>
           <h4 className="font-display text-base font-semibold text-[var(--navy-dark)]">
-            {card.title}
+            {card.ai_title || card.title}
           </h4>
+          {(card.start_time || card.location) && (
+            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--gray-text)]">
+              {[card.start_time, card.location].filter(Boolean).join(" · ")}
+            </p>
+          )}
           <p className="mt-2 text-sm leading-6 text-[var(--gray-text)]">
-            {card.details}
+            {card.ai_summary || card.details}
           </p>
+          {card.content_url && (
+            <a
+              href={card.content_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 block truncate text-xs text-[var(--primary-blue)] hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              View link
+            </a>
+          )}
+          {card.suggested_by && (
+            <p className="mt-2 text-xs text-[var(--gray-text)]">by {card.suggested_by}</p>
+          )}
         </div>
         <button
           type="button"

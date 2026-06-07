@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "FastAPI backend for the Project Management MVP"
 requires-python = ">=3.12"
 dependencies = [
+  "bcrypt>=4.0.0,<5.0.0",
   "fastapi>=0.116.0,<1.0.0",
   "httpx>=0.28.0,<1.0.0",
   "itsdangerous>=2.2.0,<3.0.0",

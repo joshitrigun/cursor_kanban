@@ -40,7 +40,7 @@ describe("AppShell", () => {
 
     expect(await screen.findByTestId("login-form")).toBeInTheDocument();
     expect(screen.getByLabelText(/password/i)).toHaveValue("");
-    expect(screen.queryByRole("heading", { name: /kanban studio/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /trip board/i })).toBeInTheDocument();
   });
 
   it("logs in successfully and renders the board", async () => {
@@ -80,12 +80,12 @@ describe("AppShell", () => {
     expect(mockFetch).toHaveBeenNthCalledWith(
       3,
       "/api/board",
-      expect.objectContaining({ credentials: "same-origin" })
+      expect.objectContaining({ credentials: "include" })
     );
     expect(mockFetch).toHaveBeenNthCalledWith(
       4,
       "/api/chat-history",
-      expect.objectContaining({ credentials: "same-origin" })
+      expect.objectContaining({ credentials: "include" })
     );
   });
 
@@ -135,7 +135,7 @@ describe("AppShell", () => {
     await waitFor(() => {
       expect(screen.getByText(/signed in as user/i)).toBeInTheDocument();
     });
-    expect(screen.getAllByTestId(/column-/i)).toHaveLength(5);
+    expect(screen.getAllByTestId(/column-/i)).toHaveLength(7);
   });
 
   it("sends a chat message and renders the assistant reply", async () => {

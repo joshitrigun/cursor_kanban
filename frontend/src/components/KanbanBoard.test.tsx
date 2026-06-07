@@ -5,9 +5,9 @@ import { KanbanBoard } from "@/components/KanbanBoard";
 const getFirstColumn = () => screen.getAllByTestId(/column-/i)[0];
 
 describe("KanbanBoard", () => {
-  it("renders five columns", () => {
+  it("renders unscheduled plus six day columns", () => {
     render(<KanbanBoard />);
-    expect(screen.getAllByTestId(/column-/i)).toHaveLength(5);
+    expect(screen.getAllByTestId(/column-/i)).toHaveLength(7);
   });
 
   it("renames a column", async () => {

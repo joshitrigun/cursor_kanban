@@ -3,6 +3,7 @@ from pathlib import Path
 from time import monotonic
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import URLSafeTimedSerializer
@@ -37,6 +38,17 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     )
     app.state.openrouter_settings = load_openrouter_settings(app.state.settings)
     app.state.openrouter_client = OpenRouterClient(app.state.openrouter_settings)
+
+    cors_origins = list(app.state.settings.trusted_origins)
+    if app.state.settings.is_development:
+        cors_origins.append("http://localhost:3000")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type"],
+    )
 
     @app.middleware("http")
     async def add_security_headers(request: Request, call_next):

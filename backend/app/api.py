@@ -1,19 +1,24 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from collections.abc import Callable
 from time import monotonic
-from urllib.parse import urlsplit
+from urllib.parse import urlparse, urlsplit
 from uuid import uuid4
 
+import bcrypt
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from app.ai import (
     AIResponseValidationError,
+    CARD_ENRICHMENT_SYSTEM_PROMPT,
     STRUCTURED_SYSTEM_PROMPT,
+    build_card_enrichment_user_prompt,
     build_structured_user_prompt,
+    parse_card_enrichment_response,
     parse_structured_assistant_response,
 )
 from app.db import (
@@ -21,10 +26,20 @@ from app.db import (
     append_chat_exchange_for_username,
     get_board_for_username,
     get_chat_history_for_username,
+    get_trip_for_user,
+    get_user_for_auth,
     update_board_for_username,
+    upsert_trip_for_user,
 )
 from app.openrouter import OpenRouterClient, OpenRouterConfigError
-from app.schemas import AIChatPayload, BoardEnvelope, ChatMessagePayload, LoginPayload
+from app.schemas import (
+    AIChatPayload,
+    BoardEnvelope,
+    ChatMessagePayload,
+    LoginPayload,
+    QuickAddPayload,
+    TripPayload,
+)
 from app.settings import AppSettings
 
 SESSION_COOKIE_NAME = "pm_session"
@@ -143,7 +158,15 @@ def get_authenticated_username(request: Request) -> str | None:
         return None
 
     username = payload.get("username") if isinstance(payload, dict) else None
-    if username != settings.auth_username:
+    if not username:
+        return None
+
+    # Validate the user still exists in the database.
+    db = get_db_connection(request)
+    user_row = db.execute(
+        "SELECT id FROM users WHERE username = ?", (username,)
+    ).fetchone()
+    if user_row is None:
         return None
 
     return username
@@ -165,12 +188,16 @@ def read_health() -> dict[str, str]:
 
 
 @router.get("/session")
-def read_session(request: Request) -> dict[str, str | bool | None]:
+def read_session(
+    request: Request,
+    db: sqlite3.Connection = Depends(get_db_connection),
+) -> dict[str, str | bool | None]:
     username = get_authenticated_username(request)
-    return {
-        "authenticated": username is not None,
-        "username": username,
-    }
+    if username is None:
+        return {"authenticated": False, "username": None, "displayName": None}
+    user_row = get_user_for_auth(db, username)
+    display_name = user_row["display_name"] if user_row and user_row["display_name"] else username
+    return {"authenticated": True, "username": username, "displayName": display_name}
 
 
 @router.post("/login")
@@ -178,6 +205,7 @@ def login(
     request: Request,
     payload: LoginPayload,
     response: Response,
+    db: sqlite3.Connection = Depends(get_db_connection),
 ) -> dict[str, str | bool]:
     settings = get_settings(request)
     enforce_rate_limit(
@@ -187,9 +215,10 @@ def login(
         window_seconds=settings.login_rate_limit_window_seconds,
         key=get_client_identifier(request),
     )
-    if (
-        payload.username != settings.auth_username
-        or payload.password != settings.auth_password
+
+    user_row = get_user_for_auth(db, payload.username)
+    if user_row is None or not user_row["hashed_password"] or not bcrypt.checkpw(
+        payload.password.encode(), user_row["hashed_password"].encode()
     ):
         response.status_code = status.HTTP_401_UNAUTHORIZED
         return {
@@ -199,14 +228,14 @@ def login(
 
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
-        value=sign_session_username(request, settings.auth_username),
+        value=sign_session_username(request, user_row["username"]),
         httponly=True,
         samesite="lax",
         secure=settings.session_cookie_secure,
         max_age=settings.session_max_age_seconds,
         path="/",
     )
-    return {"authenticated": True, "username": settings.auth_username}
+    return {"authenticated": True, "username": user_row["username"]}
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -324,10 +353,12 @@ async def run_ai_chat(
     try:
         current_board = get_board_for_username(db, username)
         chat_history = get_chat_history_for_username(db, username)
+        trip = get_trip_for_user(db, username)
         prompt = build_structured_user_prompt(
             current_board["board"],
             chat_history,
             payload.message,
+            trip,
         )
     except BoardNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -377,3 +408,133 @@ async def run_ai_chat(
         "boardUpdated": board_mutation is not None,
         **response_payload,
     }
+
+
+@router.get("/trip")
+def read_trip(
+    db: sqlite3.Connection = Depends(get_db_connection),
+    username: str = Depends(require_authenticated_username),
+) -> dict[str, object]:
+    trip = get_trip_for_user(db, username)
+    return trip or {"name": "", "destination": "", "startDate": None, "endDate": None}
+
+
+@router.put("/trip")
+def update_trip(
+    request: Request,
+    payload: TripPayload,
+    db: sqlite3.Connection = Depends(get_db_connection),
+    username: str = Depends(require_authenticated_username),
+) -> dict[str, object]:
+    validate_authenticated_origin(request)
+    try:
+        return upsert_trip_for_user(
+            db,
+            username,
+            payload.name,
+            payload.destination,
+            payload.startDate,
+            payload.endDate,
+        )
+    except BoardNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+def _is_safe_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+        return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
+async def _fetch_og_metadata(url: str) -> dict[str, str]:
+    try:
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as http_client:
+            response = await http_client.get(
+                url, headers={"User-Agent": "Mozilla/5.0 (compatible; VacationPlanner/1.0)"}
+            )
+            if not response.is_success:
+                return {}
+            html = response.text
+
+        og_data: dict[str, str] = {}
+        for prop, key in [
+            ("og:title", "title"),
+            ("og:description", "description"),
+            ("og:site_name", "site_name"),
+        ]:
+            match = re.search(
+                rf'<meta[^>]+property=["\']?{re.escape(prop)}["\']?[^>]+content=["\']([^"\']+)["\']',
+                html,
+                re.IGNORECASE,
+            )
+            if match:
+                og_data[key] = match.group(1)
+        return og_data
+    except Exception:
+        return {}
+
+
+@router.post("/cards/quick-add")
+async def quick_add_card(
+    request: Request,
+    payload: QuickAddPayload,
+    db: sqlite3.Connection = Depends(get_db_connection),
+    username: str = Depends(require_authenticated_username),
+    client: OpenRouterClient = Depends(get_openrouter_client),
+) -> dict[str, object]:
+    validate_authenticated_origin(request)
+
+    try:
+        board_data = get_board_for_username(db, username)
+    except BoardNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    board = board_data["board"]
+
+    user_row = get_user_for_auth(db, username)
+    display_name = user_row["display_name"] if user_row and user_row["display_name"] else username
+
+    card_id = f"card-{uuid4().hex[:8]}"
+    raw_title = payload.text.strip() if payload.text.strip() else payload.url.strip()
+    card: dict[str, object] = {
+        "id": card_id,
+        "title": raw_title[:80],
+        "details": "",
+        "suggested_by": display_name,
+        "status": "idea",
+    }
+    if payload.url.strip():
+        card["content_url"] = payload.url.strip()
+
+    unscheduled_col = next(
+        (col for col in board["columns"] if col["id"] == "col-unscheduled"),
+        board["columns"][0] if board["columns"] else None,
+    )
+    if unscheduled_col:
+        unscheduled_col["cardIds"].insert(0, card_id)
+    board["cards"][card_id] = card
+
+    if payload.url.strip() and _is_safe_url(payload.url.strip()):
+        try:
+            og_data = await _fetch_og_metadata(payload.url.strip())
+            enrichment_prompt = build_card_enrichment_user_prompt(payload.url.strip(), og_data)
+            raw_response = await client.chat(
+                user_message=enrichment_prompt,
+                system_prompt=CARD_ENRICHMENT_SYSTEM_PROMPT,
+            )
+            enrichment = parse_card_enrichment_response(raw_response)
+            if enrichment["title"]:
+                card["title"] = enrichment["title"]
+                card["ai_title"] = enrichment["title"]
+            if enrichment["summary"]:
+                card["details"] = enrichment["summary"]
+                card["ai_summary"] = enrichment["summary"]
+            if enrichment["tag"]:
+                card["ai_tag"] = enrichment["tag"]
+        except Exception:
+            pass  # Enrichment failure is non-fatal; card is saved without enrichment
+
+    updated = update_board_for_username(db, username, board)
+    return {**updated, "cardId": card_id}

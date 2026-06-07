@@ -76,13 +76,6 @@ def validate_app_settings(settings: AppSettings) -> AppSettings:
         return settings
 
     if (
-        "PM_AUTH_PASSWORD" not in os.environ
-        or settings.auth_password == DEFAULT_AUTH_PASSWORD
-    ):
-        raise AppSettingsError(
-            "PM_AUTH_PASSWORD must be explicitly set to a non-default value outside development.")
-
-    if (
         "PM_SESSION_SECRET" not in os.environ
         or settings.session_secret == DEFAULT_SESSION_SECRET
         or len(settings.session_secret) < 32

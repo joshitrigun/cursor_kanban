@@ -1,0 +1,18 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5
+
+# Environment variables to set in the Railway dashboard:
+#   PM_ENV=production
+#   PM_SESSION_SECRET=<strong random string, min 32 chars>
+#   PM_SESSION_COOKIE_SECURE=true
+#   PM_TRUSTED_ORIGINS=https://your-app.vercel.app
+#   PM_DB_PATH=/app/data/pm.db
+#   OPENROUTER_API_KEY=<your key>
+#
+# Volume: mount a Railway persistent volume at /app/data

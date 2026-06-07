@@ -8,6 +8,7 @@ import type { BoardData } from "@/lib/kanban";
 type SessionResponse = {
   authenticated: boolean;
   username: string | null;
+  displayName: string | null;
   message?: string;
 };
 
@@ -32,14 +33,16 @@ type ChatHistoryResponse = {
 const unauthenticatedSession: SessionResponse = {
   authenticated: false,
   username: null,
+  displayName: null,
 };
 
 const BOARD_SAVE_DEBOUNCE_MS = 300;
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export const AppShell = () => {
   const [session, setSession] = useState<SessionResponse | null>(null);
   const [board, setBoard] = useState<BoardData | null>(null);
-  const [username, setUsername] = useState("user");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -49,6 +52,8 @@ export const AppShell = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiErrorMessage, setAiErrorMessage] = useState<string | null>(null);
+  const [quickAddText, setQuickAddText] = useState("");
+  const [isQuickAdding, setIsQuickAdding] = useState(false);
   const saveQueueRef = useRef(Promise.resolve());
   const pendingBoardRef = useRef<BoardData | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -65,8 +70,8 @@ export const AppShell = () => {
     setBoardErrorMessage(null);
 
     try {
-      const response = await fetch("/api/board", {
-        credentials: "same-origin",
+      const response = await fetch(`${API_BASE}/api/board`, {
+        credentials: "include",
       });
 
       if (!response.ok) {
@@ -87,8 +92,8 @@ export const AppShell = () => {
     setAiErrorMessage(null);
 
     try {
-      const response = await fetch("/api/chat-history", {
-        credentials: "same-origin",
+      const response = await fetch(`${API_BASE}/api/chat-history`, {
+        credentials: "include",
       });
 
       if (!response.ok) {
@@ -112,10 +117,10 @@ export const AppShell = () => {
     setAiErrorMessage(null);
 
     try {
-      const response = await fetch("/api/ai/chat", {
+      const response = await fetch(`${API_BASE}/api/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
+        credentials: "include",
         body: JSON.stringify({ message: text }),
       });
 
@@ -162,12 +167,12 @@ export const AppShell = () => {
     setIsSavingBoard(true);
 
     try {
-      const response = await fetch("/api/board", {
+      const response = await fetch(`${API_BASE}/api/board`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
         },
-        credentials: "same-origin",
+        credentials: "include",
         body: JSON.stringify({ board: nextBoard }),
       });
 
@@ -227,8 +232,8 @@ export const AppShell = () => {
 
     const loadSession = async () => {
       try {
-        const response = await fetch("/api/session", {
-          credentials: "same-origin",
+        const response = await fetch(`${API_BASE}/api/session`, {
+          credentials: "include",
         });
 
         if (!response.ok) {
@@ -283,12 +288,12 @@ export const AppShell = () => {
     setErrorMessage(null);
 
     try {
-      const response = await fetch("/api/login", {
+      const response = await fetch(`${API_BASE}/api/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        credentials: "same-origin",
+        credentials: "include",
         body: JSON.stringify({ username, password }),
       });
 
@@ -312,15 +317,39 @@ export const AppShell = () => {
     setErrorMessage(null);
 
     try {
-      await fetch("/api/logout", {
+      await fetch(`${API_BASE}/api/logout`, {
         method: "POST",
-        credentials: "same-origin",
+        credentials: "include",
       });
     } finally {
       setSession(unauthenticatedSession);
       setBoard(null);
       resetChatState();
       setIsSubmitting(false);
+    }
+  };
+
+  const handleQuickAdd = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const text = quickAddText.trim();
+    if (!text) return;
+
+    setIsQuickAdding(true);
+    const isUrl = text.startsWith("http://") || text.startsWith("https://");
+    try {
+      const response = await fetch(`${API_BASE}/api/cards/quick-add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(isUrl ? { url: text } : { text }),
+      });
+      if (response.ok) {
+        const data = (await response.json()) as BoardResponse;
+        setBoard(data.board);
+        setQuickAddText("");
+      }
+    } finally {
+      setIsQuickAdding(false);
     }
   };
 
@@ -362,15 +391,36 @@ export const AppShell = () => {
 
     return (
       <div className="flex min-h-screen flex-col xl:flex-row">
-        <div className="min-w-0 flex-1 xl:min-h-screen">
-          <KanbanBoard
-            board={board}
-            onBoardChange={persistBoard}
-            username={session.username ?? undefined}
-            onLogout={handleLogout}
-            statusMessage={isSavingBoard ? "Saving board" : undefined}
-            errorMessage={boardErrorMessage}
-          />
+        <div className="flex min-w-0 flex-1 flex-col xl:min-h-screen">
+          <div className="border-b border-[var(--stroke)] bg-white px-6 py-3">
+            <form onSubmit={handleQuickAdd} className="flex gap-3">
+              <input
+                type="text"
+                value={quickAddText}
+                onChange={(e) => setQuickAddText(e.target.value)}
+                placeholder="Paste a link or type an idea to add to Ideas..."
+                className="flex-1 rounded-2xl border border-[var(--stroke)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--navy-dark)] outline-none transition focus:border-[var(--primary-blue)]"
+                disabled={isQuickAdding}
+              />
+              <button
+                type="submit"
+                disabled={!quickAddText.trim() || isQuickAdding}
+                className="rounded-full bg-[var(--secondary-purple)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.2em] text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isQuickAdding ? "Adding..." : "Add"}
+              </button>
+            </form>
+          </div>
+          <div className="flex-1">
+            <KanbanBoard
+              board={board}
+              onBoardChange={persistBoard}
+              username={session.displayName ?? session.username ?? undefined}
+              onLogout={handleLogout}
+              statusMessage={isSavingBoard ? "Saving board" : undefined}
+              errorMessage={boardErrorMessage}
+            />
+          </div>
         </div>
         <ChatSidebar
           messages={chatMessages}
@@ -390,27 +440,21 @@ export const AppShell = () => {
       <section className="relative grid w-full max-w-5xl gap-8 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-[32px] border border-[var(--stroke)] bg-white/80 p-10 shadow-[var(--shadow)] backdrop-blur">
           <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[var(--gray-text)]">
-            Single Board Kanban
+            Family Vacation Planner
           </p>
           <h1 className="mt-4 font-display text-5xl font-semibold text-[var(--navy-dark)]">
-            Kanban Studio
+            Trip Board
           </h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-[var(--gray-text)]">
-            Sign in to open your board. This MVP keeps the credentials simple while
-            the backend owns the session state and protects the board view.
+            Sign in to open your family trip board. Each family member has their
+            own account. Ask your trip organizer for credentials.
           </p>
-          <div className="mt-8 grid gap-4 sm:grid-cols-3">
+          <div className="mt-8 grid gap-4 sm:grid-cols-2">
             <div className="rounded-2xl border border-[var(--stroke)] bg-[var(--surface)] px-4 py-5">
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--gray-text)]">
-                Username
+                Shared board
               </p>
-              <p className="mt-2 text-lg font-semibold text-[var(--navy-dark)]">user</p>
-            </div>
-            <div className="rounded-2xl border border-[var(--stroke)] bg-[var(--surface)] px-4 py-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--gray-text)]">
-                Password
-              </p>
-              <p className="mt-2 text-lg font-semibold text-[var(--navy-dark)]">password</p>
+              <p className="mt-2 text-lg font-semibold text-[var(--navy-dark)]">Family trip planning</p>
             </div>
             <div className="rounded-2xl border border-[var(--stroke)] bg-[var(--surface)] px-4 py-5">
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--gray-text)]">

@@ -2,12 +2,25 @@ export type Card = {
   id: string;
   title: string;
   details: string;
+  status?: "idea" | "researching" | "booked" | "maybe" | "cancelled" | string;
+  start_time?: string;
+  end_time?: string;
+  location?: string;
+  address?: string;
+  content_url?: string;
+  ai_title?: string;
+  ai_summary?: string;
+  ai_tag?: string;
+  suggested_by?: string;
+  trip_date?: string;
+  deadline?: string;
 };
 
 export type Column = {
   id: string;
   title: string;
   cardIds: string[];
+  locked?: boolean;
 };
 
 export type BoardData = {
@@ -17,56 +30,36 @@ export type BoardData = {
 
 export const initialData: BoardData = {
   columns: [
-    { id: "col-backlog", title: "Backlog", cardIds: ["card-1", "card-2"] },
-    { id: "col-discovery", title: "Discovery", cardIds: ["card-3"] },
-    {
-      id: "col-progress",
-      title: "In Progress",
-      cardIds: ["card-4", "card-5"],
-    },
-    { id: "col-review", title: "Review", cardIds: ["card-6"] },
-    { id: "col-done", title: "Done", cardIds: ["card-7", "card-8"] },
+    { id: "col-unscheduled", title: "Unscheduled", cardIds: ["card-1", "card-2"] },
+    { id: "col-day-1", title: "Day 1 \u00b7 Jun 28", cardIds: [] },
+    { id: "col-day-2", title: "Day 2 \u00b7 Jun 29", cardIds: ["card-3"] },
+    { id: "col-day-3", title: "Day 3 \u00b7 Jun 30", cardIds: [] },
+    { id: "col-day-4", title: "Day 4 \u00b7 Jul 1", cardIds: [] },
+    { id: "col-day-5", title: "Day 5 \u00b7 Jul 2", cardIds: [] },
+    { id: "col-day-6", title: "Day 6 \u00b7 Jul 3", cardIds: [] },
   ],
   cards: {
     "card-1": {
       id: "card-1",
-      title: "Align roadmap themes",
-      details: "Draft quarterly themes with impact statements and metrics.",
+      title: "Destination ideas",
+      details: "Beach, mountains, city break? Add your suggestions here.",
+      suggested_by: "User",
+      status: "idea",
     },
     "card-2": {
       id: "card-2",
-      title: "Gather customer signals",
-      details: "Review support tags, sales notes, and churn feedback.",
+      title: "Activities wish list",
+      details: "Drop any activities, restaurants, or experiences you want to do.",
+      suggested_by: "User",
+      status: "idea",
     },
     "card-3": {
       id: "card-3",
-      title: "Prototype analytics view",
-      details: "Sketch initial dashboard layout and key drill-downs.",
-    },
-    "card-4": {
-      id: "card-4",
-      title: "Refine status language",
-      details: "Standardize column labels and tone across the board.",
-    },
-    "card-5": {
-      id: "card-5",
-      title: "Design card layout",
-      details: "Add hierarchy and spacing for scanning dense lists.",
-    },
-    "card-6": {
-      id: "card-6",
-      title: "QA micro-interactions",
-      details: "Verify hover, focus, and loading states.",
-    },
-    "card-7": {
-      id: "card-7",
-      title: "Ship marketing page",
-      details: "Final copy approved and asset pack delivered.",
-    },
-    "card-8": {
-      id: "card-8",
-      title: "Close onboarding sprint",
-      details: "Document release notes and share internally.",
+      title: "Check accommodation options",
+      details: "Compare Airbnb vs hotel for the dates. Need to decide before June 15.",
+      suggested_by: "User",
+      ai_tag: "Lodging",
+      status: "researching",
     },
   },
 };

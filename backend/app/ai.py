@@ -21,7 +21,7 @@ BOARD_COMPACTION_STEPS = (
 )
 
 
-STRUCTURED_SYSTEM_PROMPT = """You are a project management assistant for a single Kanban board.
+STRUCTURED_SYSTEM_PROMPT = """You are a vacation planning assistant for a family trip Kanban board.
 Return exactly one JSON object and no surrounding commentary.
 The JSON must match this shape:
 {
@@ -33,15 +33,59 @@ The JSON must match this shape:
 }
 Only include a non-null board when you are confident a board update should be applied.
 When no board update is needed, set board to null.
-Preserve exactly five columns and keep all card references valid.
+The board has three columns: Ideas, To Research, and Booked & Locked. Preserve all three columns.
+Keep all card references valid.
 """
+
+CARD_ENRICHMENT_SYSTEM_PROMPT = """You are a travel planning assistant. Given a URL and any available metadata, return exactly one JSON object. No surrounding text.
+{
+  \"title\": string (short descriptive title, max 80 characters),
+  \"summary\": string (1-2 sentences describing what this is for trip planning),
+  \"tag\": \"Lodging\" | \"Food\" | \"Activity\" | \"Transport\" | \"Other\"
+}"""
+
+
+def build_card_enrichment_user_prompt(url: str, og_data: dict[str, str]) -> str:
+    parts = [f"URL: {url}"]
+    if og_data.get("title"):
+        parts.append(f"Page title: {og_data['title']}")
+    if og_data.get("description"):
+        parts.append(f"Page description: {og_data['description']}")
+    if og_data.get("site_name"):
+        parts.append(f"Site: {og_data['site_name']}")
+    return "\n".join(parts)
+
+
+def parse_card_enrichment_response(raw: str) -> dict[str, str]:
+    try:
+        data = json.loads(raw.strip())
+        return {
+            "title": str(data.get("title", ""))[:80],
+            "summary": str(data.get("summary", ""))[:300],
+            "tag": str(data.get("tag", "Other")),
+        }
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise AIResponseValidationError("Card enrichment response was not valid JSON.") from exc
 
 
 def build_structured_user_prompt(
     board: dict[str, Any],
     history: list[dict[str, Any]],
     user_message: str,
+    trip: dict[str, Any] | None = None,
 ) -> str:
+    trip_block = ""
+    if trip:
+        parts = []
+        if trip.get("name"):
+            parts.append(f"Trip: {trip['name']}")
+        if trip.get("destination"):
+            parts.append(f"Destination: {trip['destination']}")
+        if trip.get("startDate"):
+            parts.append(f"Start date: {trip['startDate']}")
+        if trip.get("endDate"):
+            parts.append(f"End date: {trip['endDate']}")
+        trip_block = "\n".join(parts)
     for step in BOARD_COMPACTION_STEPS:
         board_json = json.dumps(
             compact_board_for_prompt(
@@ -56,7 +100,7 @@ def build_structured_user_prompt(
             user_message,
             board_json,
         )
-        prompt = build_prompt(board_json, history_block, user_message)
+        prompt = build_prompt(board_json, history_block, user_message, trip_block)
         if len(prompt) <= MAX_PROMPT_CHARS:
             return prompt
 
@@ -64,11 +108,13 @@ def build_structured_user_prompt(
         compact_board_for_prompt(board, title_limit=40, details_limit=0),
         separators=(",", ":"),
     )
-    return build_prompt(minimal_board_json, "(none)", truncate_text(user_message, 2000))
+    return build_prompt(minimal_board_json, "(none)", truncate_text(user_message, 2000), trip_block)
 
 
-def build_prompt(board_json: str, history_block: str, user_message: str) -> str:
+def build_prompt(board_json: str, history_block: str, user_message: str, trip_block: str = "") -> str:
+    trip_section = f"Trip context:\n{trip_block}\n\n" if trip_block else ""
     return (
+        f"{trip_section}"
         "Current board JSON:\n"
         f"{board_json}\n\n"
         "Conversation history:\n"
