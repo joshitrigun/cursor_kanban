@@ -160,20 +160,26 @@ export const KanbanBoard = ({
 
   return (
     <div className="relative overflow-hidden">
-      <div className="pointer-events-none absolute left-0 top-0 h-[420px] w-[420px] -translate-x-1/3 -translate-y-1/3 rounded-full bg-[radial-gradient(circle,_rgba(32,157,215,0.25)_0%,_rgba(32,157,215,0.05)_55%,_transparent_70%)]" />
-      <div className="pointer-events-none absolute bottom-0 right-0 h-[520px] w-[520px] translate-x-1/4 translate-y-1/4 rounded-full bg-[radial-gradient(circle,_rgba(117,57,145,0.18)_0%,_rgba(117,57,145,0.05)_55%,_transparent_75%)]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[linear-gradient(135deg,_rgba(31,111,84,0.22),_rgba(17,126,162,0.16)_45%,_rgba(244,251,255,0)_80%)]" />
+      <div className="pointer-events-none absolute right-0 top-0 h-64 w-2/3 bg-[linear-gradient(160deg,_transparent_0%,_rgba(255,255,255,0.35)_35%,_transparent_36%,_transparent_48%,_rgba(255,255,255,0.24)_49%,_transparent_50%)]" />
 
       <main className="relative mx-auto flex min-h-screen max-w-[1500px] flex-col gap-8 px-4 pb-16 pt-6 sm:px-6">
         <header className="flex flex-col gap-5 rounded-[28px] border border-[var(--stroke)] bg-white/85 p-5 shadow-[var(--shadow)] backdrop-blur sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--gray-text)]">
-                Family Vacation Planner
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--forest-green)]">
+                Vancouver / Whistler Family Vacation
               </p>
               <h1 className="mt-2 font-display text-3xl font-semibold text-[var(--navy-dark)] sm:text-4xl">
-                Trip Board
+                Pacific Northwest Trip Plan
               </h1>
               <div className="mt-4 flex flex-wrap gap-2">
+                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--pacific-teal)]">
+                  Mountains + ocean
+                </span>
+                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--forest-green)]">
+                  World Cup optional
+                </span>
                 <span className="rounded-full bg-[var(--surface)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--navy-dark)]">
                   {dayCount} days
                 </span>

@@ -23,6 +23,15 @@ const formatStatus = (status: string) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 
+const TAG_STYLES: Record<string, string> = {
+  Transport: "bg-sky-100 text-sky-700",
+  Food: "bg-orange-100 text-orange-700",
+  Activity: "bg-green-100 text-green-700",
+  Lodging: "bg-violet-100 text-violet-700",
+  Event: "bg-red-100 text-red-700",
+  "World Cup": "bg-red-100 text-red-700",
+};
+
 export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: card.id });
@@ -54,7 +63,7 @@ export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
               </span>
             )}
             {card.ai_tag && (
-              <span className="inline-block rounded-full bg-[var(--blue-primary)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+              <span className={clsx("inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", TAG_STYLES[card.ai_tag] ?? "bg-slate-100 text-slate-700")}>
                 {card.ai_tag}
               </span>
             )}

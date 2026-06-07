@@ -2,11 +2,14 @@
 
 :root {
   --accent-yellow: #ecad0a;
-  --primary-blue: #209dd7;
-  --secondary-purple: #753991;
-  --navy-dark: #032147;
-  --gray-text: #888888;
-  --surface: #f7f8fb;
+  --primary-blue: #117ea2;
+  --secondary-purple: #6d4d8f;
+  --navy-dark: #052033;
+  --gray-text: #66737f;
+  --forest-green: #1f6f54;
+  --pacific-teal: #0f8f8c;
+  --snow: #f4fbff;
+  --surface: #eef6f3;
   --surface-strong: #ffffff;
   --stroke: rgba(3, 33, 71, 0.08);
   --shadow: 0 18px 40px rgba(3, 33, 71, 0.12);
@@ -23,7 +26,10 @@
 }
 
 body {
-  background: var(--surface);
+  background:
+    linear-gradient(135deg, rgba(31, 111, 84, 0.10), transparent 32%),
+    linear-gradient(315deg, rgba(17, 126, 162, 0.12), transparent 36%),
+    var(--surface);
   color: var(--navy-dark);
   font-family: var(--font-body), "Segoe UI", sans-serif;
   margin: 0;

@@ -13,6 +13,14 @@ _SEED_CARDS: dict = {
         "suggested_by": "Trija",
         "status": "idea",
     },
+    "card-unscheduled-2": {
+        "id": "card-unscheduled-2",
+        "title": "World Cup fan zone or match watch idea",
+        "details": "If a match overlaps the trip, shortlist a Vancouver fan zone, pub, or family-friendly watch spot without making soccer the whole plan.",
+        "suggested_by": "Dibesh",
+        "status": "idea",
+        "ai_tag": "World Cup",
+    },
     # Day 1 - June 28
     "card-d1-1": {
         "id": "card-d1-1",

@@ -12,6 +12,8 @@ const TAG_COLORS: Record<string, string> = {
   Food: "bg-orange-100 text-orange-700",
   Activity: "bg-green-100 text-green-700",
   Lodging: "bg-purple-100 text-purple-700",
+  Event: "bg-red-100 text-red-700",
+  "World Cup": "bg-red-100 text-red-700",
 };
 
 const STATUS_COLORS: Record<string, string> = {
