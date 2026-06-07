@@ -7,7 +7,10 @@ const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 const isVercel = Boolean(apiUrl);
 
 const nextConfig: NextConfig = {
-  ...(isVercel ? {} : { output: "export", turbopack: { root: __dirname } }),
+  turbopack: {
+    root: __dirname,
+  },
+  ...(isVercel ? {} : { output: "export" }),
   async rewrites() {
     if (!isVercel) return [];
     // Proxy /api/* to the backend service at /_/backend on the production domain.
