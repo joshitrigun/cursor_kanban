@@ -33,6 +33,8 @@ def test_health_route_returns_ok_payload(client: TestClient) -> None:
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["referrer-policy"] == "no-referrer"
     assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["server-timing"].startswith("app;dur=")
+    assert float(response.headers["x-response-time-ms"]) >= 0
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
 
 

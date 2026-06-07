@@ -39,6 +39,25 @@ const unauthenticatedSession: SessionResponse = {
 const BOARD_SAVE_DEBOUNCE_MS = 300;
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
+const markPerformance = (name: string) => {
+  if (typeof performance === "undefined" || !performance.mark) {
+    return;
+  }
+  performance.mark(name);
+};
+
+const measurePerformance = (name: string, startMark: string, endMark: string) => {
+  if (typeof performance === "undefined" || !performance.measure) {
+    return;
+  }
+
+  try {
+    performance.measure(name, startMark, endMark);
+  } catch {
+    return;
+  }
+};
+
 export const AppShell = () => {
   const [session, setSession] = useState<SessionResponse | null>(null);
   const [board, setBoard] = useState<BoardData | null>(null);
@@ -59,6 +78,10 @@ export const AppShell = () => {
   const pendingBoardRef = useRef<BoardData | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const debounceResolveRef = useRef<(() => void) | null>(null);
+  const appLoadStartMarkRef = useRef(`app-load-start-${Date.now()}`);
+  const loginStartMarkRef = useRef<string | null>(null);
+  const quickAddStartMarkRef = useRef<string | null>(null);
+  const boardVisibleMeasuredRef = useRef(false);
 
   const resetChatState = () => {
     setChatMessages([]);
@@ -230,6 +253,7 @@ export const AppShell = () => {
 
   useEffect(() => {
     let cancelled = false;
+    markPerformance(appLoadStartMarkRef.current);
 
     const loadSession = async () => {
       try {
@@ -276,6 +300,20 @@ export const AppShell = () => {
   }, [session?.authenticated]);
 
   useEffect(() => {
+    if (!session?.authenticated || board === null || boardVisibleMeasuredRef.current) {
+      return;
+    }
+
+    boardVisibleMeasuredRef.current = true;
+    markPerformance("board-visible");
+    measurePerformance("app-load-to-board-visible", appLoadStartMarkRef.current, "board-visible");
+    if (loginStartMarkRef.current) {
+      measurePerformance("login-to-board-visible", loginStartMarkRef.current, "board-visible");
+      loginStartMarkRef.current = null;
+    }
+  }, [board, session?.authenticated]);
+
+  useEffect(() => {
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
@@ -300,6 +338,8 @@ export const AppShell = () => {
     event.preventDefault();
     setIsSubmitting(true);
     setErrorMessage(null);
+    loginStartMarkRef.current = `login-start-${Date.now()}`;
+    markPerformance(loginStartMarkRef.current);
 
     try {
       const response = await fetch(`${API_BASE}/api/login`, {
@@ -349,6 +389,8 @@ export const AppShell = () => {
     if (!text) return;
 
     setIsQuickAdding(true);
+    quickAddStartMarkRef.current = `quick-add-start-${Date.now()}`;
+    markPerformance(quickAddStartMarkRef.current);
     const isUrl = text.startsWith("http://") || text.startsWith("https://");
     try {
       const response = await fetch(`${API_BASE}/api/cards/quick-add`, {
@@ -361,8 +403,11 @@ export const AppShell = () => {
         const data = (await response.json()) as BoardResponse;
         setBoard(data.board);
         setQuickAddText("");
+        markPerformance("quick-add-card-visible");
+        measurePerformance("quick-add-to-card-visible", quickAddStartMarkRef.current, "quick-add-card-visible");
       }
     } finally {
+      quickAddStartMarkRef.current = null;
       setIsQuickAdding(false);
     }
   };

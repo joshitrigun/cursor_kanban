@@ -7,13 +7,17 @@ This document turns the project outline into an execution plan that can be appro
 - The product is now a family vacation planner for a Vancouver and Whistler trip, not a generic project management board.
 - The frontend in [frontend](d:\learn\pm\pm\frontend) is a Next.js app with a travel-focused board, Day 1-Day 6 itinerary tabs, an Ideas Inbox, quick-add, and AI chat.
 - The authenticated family experience supports named seeded users sharing one family trip board.
-- The board supports column rename, add card, delete card, drag-and-drop card movement, day finalization, and timeline-style day planning.
+- The trip is seeded from `2026-06-28` through `2026-07-03`.
+- The board supports column rename, add card, delete card, drag-and-drop card movement, day finalization, Trip Readiness checks, and timeline-style day planning.
+- Day views are organized into Morning, Afternoon, Evening, and Anytime sections with missing meal, missing travel, packed-day, and finalized-day signals.
+- The Vancouver/Whistler visual identity is the primary theme; World Cup is an optional event category, not the whole product theme.
 - Frontend tests already exist with Vitest and Playwright.
 - A FastAPI backend exists in [backend](d:\learn\pm\pm\backend) with API routes, SQLite persistence, session auth, AI routes, and a JSON health route at `/api/health`.
 - The exported frontend is now served by FastAPI at `/` when [frontend/out](d:\learn\pm\pm\frontend\out) is present.
 - A backend-managed MVP login flow gates access with seeded family accounts using hashed passwords.
 - Board state is persisted in SQLite and loaded from `/api/board`.
 - Trip metadata is persisted in SQLite and loaded from `/api/trip`.
+- Cards support travel fields such as `status`, `start_time`, `end_time`, `location`, `address`, `content_url`, `ai_title`, `ai_summary`, `ai_tag`, `suggested_by`, `trip_date`, and `deadline`.
 - AI requests run through backend-only OpenRouter routes and validated board mutations are applied on the backend.
 - The authenticated UI includes a responsive chat sidebar that restores persisted chat history from `/api/chat-history`.
 
@@ -22,11 +26,26 @@ This document turns the project outline into an execution plan that can be appro
 The next product work should optimize for itinerary confidence and family coordination rather than generic task management.
 
 - Make the day itinerary the primary experience: Morning/Afternoon/Evening/Anytime sections, meal and travel gaps, pace warnings, and mobile-first day switching.
-- Treat Unscheduled as the family Ideas Inbox: category grouping, suggested-by visibility, and quick actions to assign, shortlist, or reject ideas.
+- Treat the Ideas Inbox as the family intake area: category grouping, suggested-by visibility, and quick actions to assign, shortlist, or reject ideas.
 - Use travel-native statuses: Idea, Researching, Shortlisted, Booked, Confirmed, and Skipped.
 - Add Trip Readiness: hotels, transport, booked activities, meals, packing, documents, and emergency info.
 - Add decision support to cards: owner, deadline, cost estimate, booking required, and reservation link.
 - Make AI planner actions reviewable: optimize a day, find lunch nearby, rebalance crowded days, create rainy-day alternatives, and apply proposed changes only after user approval.
+
+Near-term product gaps:
+
+- Finish Ideas Inbox category grouping and actions.
+- Expand Trip Readiness beyond the first four derived essentials.
+- Seed realistic content for Days 3-6.
+- Improve compact mobile itinerary behavior.
+
+Out of scope for the MVP:
+
+- Payment splitting.
+- Full booking integrations.
+- Real-time collaborative cursors.
+- Native mobile app.
+- Full routing engine.
 
 ## Current Status
 

@@ -130,8 +130,7 @@ http://127.0.0.1:8000
 
 ## Documentation
 
-- [docs/PLAN.md](docs/PLAN.md) contains the original PM MVP engineering plan.
-- [docs/VACATION_PLAN.md](docs/VACATION_PLAN.md) contains the family vacation planner product plan.
+- [docs/PLAN.md](docs/PLAN.md) is the single source of truth for the engineering plan and family vacation planner product direction.
 - [docs/DATABASE.md](docs/DATABASE.md) describes the SQLite persistence approach.
 - [docs/todos.md](docs/todos.md) tracks remaining hardening and UI/UX work.
 

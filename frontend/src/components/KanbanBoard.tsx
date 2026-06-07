@@ -14,7 +14,7 @@ import {
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
 import { DayPlanView } from "@/components/DayPlanView";
-import { createId, initialData, moveCard, type BoardData } from "@/lib/kanban";
+import { createId, initialData, moveCard, type BoardData, type Card } from "@/lib/kanban";
 
 type KanbanBoardProps = {
   board?: BoardData;
@@ -24,6 +24,11 @@ type KanbanBoardProps = {
   statusMessage?: string;
   errorMessage?: string | null;
 };
+
+const isCardBooked = (card: Card) => card.status === "booked" || card.status === "confirmed";
+
+const matchesCard = (card: Card, tag: string, terms: RegExp) =>
+  card.ai_tag === tag || terms.test(`${card.title} ${card.details} ${card.location ?? ""}`);
 
 export const KanbanBoard = ({
   board,
@@ -53,6 +58,26 @@ export const KanbanBoard = ({
   const dayCount = resolvedBoard.columns.filter((column) =>
     column.id.startsWith("col-day-")
   ).length;
+  const allCards = Object.values(resolvedBoard.cards);
+  const readinessItems = [
+    {
+      label: "Transport",
+      ready: allCards.some((card) => isCardBooked(card) && matchesCard(card, "Transport", /drive|travel|transfer|flight|airport|ferry|car|train/i)),
+    },
+    {
+      label: "Lodging",
+      ready: allCards.some((card) => isCardBooked(card) && matchesCard(card, "Lodging", /hotel|airbnb|stay|check-in|lodging|accommodation/i)),
+    },
+    {
+      label: "Meals",
+      ready: allCards.some((card) => matchesCard(card, "Food", /breakfast|brunch|lunch|dinner|meal|restaurant|coffee/i)),
+    },
+    {
+      label: "Activities",
+      ready: allCards.some((card) => matchesCard(card, "Activity", /gondola|zipline|park|falls|bridge|market|village/i)),
+    },
+  ];
+  const readinessCount = readinessItems.filter((item) => item.ready).length;
 
   const commitBoard = (updater: (currentBoard: BoardData) => BoardData) => {
     const nextBoard = updater(resolvedBoard);
@@ -224,6 +249,38 @@ export const KanbanBoard = ({
               ) : null}
             </div>
           </div>
+          <section className="rounded-3xl border border-[var(--stroke)] bg-white/70 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--gray-text)]">
+                  Trip Readiness
+                </p>
+                <h2 className="mt-1 font-display text-xl font-semibold text-[var(--navy-dark)]">
+                  {readinessCount} of {readinessItems.length} essentials covered
+                </h2>
+              </div>
+              <span className="rounded-full bg-[var(--snow)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--forest-green)]">
+                Confidence check
+              </span>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-4">
+              {readinessItems.map((item) => (
+                <div
+                  key={item.label}
+                  className={`rounded-2xl border px-3 py-3 text-sm font-semibold ${
+                    item.ready
+                      ? "border-green-200 bg-green-50 text-green-800"
+                      : "border-yellow-200 bg-yellow-50 text-yellow-800"
+                  }`}
+                >
+                  <span className="block text-[10px] uppercase tracking-[0.16em] opacity-70">
+                    {item.ready ? "Covered" : "Needs plan"}
+                  </span>
+                  {item.label}
+                </div>
+              ))}
+            </div>
+          </section>
           <div className="sticky top-3 z-20 -mx-2 flex gap-2 overflow-x-auto rounded-2xl border border-[var(--stroke)] bg-white/90 p-2 shadow-[0_10px_30px_rgba(3,33,71,0.08)] backdrop-blur">
             <button
               type="button"

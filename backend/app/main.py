@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-from time import monotonic
+from time import perf_counter, monotonic
 from typing import Optional, Union
 
 from fastapi import FastAPI, Request
@@ -55,7 +55,11 @@ def create_app(db_path: Optional[Union[str, Path]] = None) -> FastAPI:
 
     @app.middleware("http")
     async def add_security_headers(request: Request, call_next):
+        started_at = perf_counter()
         response = await call_next(request)
+        duration_ms = (perf_counter() - started_at) * 1000
+        response.headers.setdefault("Server-Timing", f"app;dur={duration_ms:.1f}")
+        response.headers.setdefault("X-Response-Time-ms", f"{duration_ms:.1f}")
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",

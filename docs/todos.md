@@ -24,9 +24,19 @@
 - [ ] Keep Ideas Inbox as the family idea inbox with category grouping, suggested-by visibility, and quick actions to assign, shortlist, or reject ideas.
 - [ ] Add map-aware planning with addresses, route order, day map view, and distance/drive-time warnings between activities.
 - [x] Replace project-style statuses with travel statuses: Idea, Researching, Shortlisted, Booked, Confirmed, and Skipped.
-- [ ] Add a Trip Readiness panel for flights, hotels, transport, bookings, meals, packing, documents, and emergency information.
+- [ ] Expand the Trip Readiness panel beyond the first essentials to include flights, hotels, transport, bookings, meals, packing, documents, and emergency information.
 - [ ] Add family preference signals such as must-do, nice-to-have, not interested, and per-person votes.
 - [ ] Make AI actions reviewable and specific: optimize a day, find lunch nearby, create rainy-day alternatives, rebalance crowded days, and apply proposed itinerary changes.
 - [ ] Add decision-required fields on cards: owner, deadline, estimated cost, booking required, and reservation link.
 - [ ] Add budget awareness with estimated cost per card, per-day totals, booked vs. unbooked costs, and free/paid filtering.
 - [ ] Improve phone planning with a compact day-first layout, sticky day switcher, quick add, and tap-to-expand cards.
+
+## Performance Improvement Todos
+
+- [x] Add lightweight backend response timing headers for API and static responses.
+- [x] Add frontend performance marks for app load to board visible, login to board visible, and quick-add to card visible.
+- [ ] Combine or streamline initial authenticated loading for session, board, trip, and chat history.
+- [ ] Profile React re-renders during drag/drop, day tab switching, quick-add, and AI board updates.
+- [ ] Split heavy surfaces with lazy loading, especially AI chat and future map/readiness views.
+- [ ] Move toward targeted board mutation endpoints before the board grows beyond MVP scale.
+- [ ] Add a repeatable Lighthouse or bundle-size check for production builds.

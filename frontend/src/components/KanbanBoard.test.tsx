@@ -52,8 +52,8 @@ describe("KanbanBoard", () => {
     expect(screen.getByRole("heading", { name: "Morning" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Afternoon" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Evening" })).toBeInTheDocument();
-    expect(screen.getByText("Meals")).toBeInTheDocument();
-    expect(screen.getByText("Travel")).toBeInTheDocument();
+    expect(screen.getAllByText("Meals").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Travel").length).toBeGreaterThan(0);
     expect(screen.getByText("Pace")).toBeInTheDocument();
   });
 });
