@@ -1,9 +1,22 @@
 import type { NextConfig } from "next";
 
-// NEXT_PUBLIC_API_URL is set when deploying to Vercel (pointing at Railway).
-// When not set, the app is built as a static export served directly by FastAPI (local Docker).
+// When deployed on Vercel, NEXT_PUBLIC_API_URL is set and the backend
+// runs as a separate service at /_/backend. In that case we use SSR mode
+// (no static export) and rewrite /api/* to /_/backend/api/*.
+// Locally the FastAPI server serves both the static export and the API.
 const isVercel = Boolean(process.env.NEXT_PUBLIC_API_URL);
 
-const nextConfig: NextConfig = isVercel ? {} : { output: "export" };
+const nextConfig: NextConfig = {
+  ...(isVercel ? {} : { output: "export" }),
+  async rewrites() {
+    if (!isVercel) return [];
+    return [
+      {
+        source: "/api/:path*",
+        destination: "/_/backend/api/:path*",
+      },
+    ];
+  },
+};
 
 export default nextConfig;

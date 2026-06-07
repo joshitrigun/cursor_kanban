@@ -1,17 +1,13 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "frontend/package.json",
-      "use": "@vercel/static-build",
-      "config": { "distDir": "out" }
+  "experimentalServices": {
+    "frontend": {
+      "root": "frontend",
+      "routePrefix": "/",
+      "framework": "nextjs"
     },
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python"
+    "backend": {
+      "root": "backend",
+      "routePrefix": "/_/backend"
     }
-  ],
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index" }
-  ]
+  }
 }
