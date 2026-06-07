@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import re
-import sqlite3
 from collections.abc import Callable
 from time import monotonic
+from typing import Any, Dict, Optional, Union
 from urllib.parse import urlparse, urlsplit
 from uuid import uuid4
 
@@ -23,6 +23,7 @@ from app.ai import (
 )
 from app.db import (
     BoardNotFoundError,
+    Connection,
     append_chat_exchange_for_username,
     get_board_for_username,
     get_chat_history_for_username,
@@ -51,7 +52,7 @@ def get_settings(request: Request) -> AppSettings:
     return request.app.state.settings
 
 
-def get_db_connection(request: Request) -> sqlite3.Connection:
+def get_db_connection(request: Request) -> Connection:
     return request.app.state.db
 
 
@@ -106,7 +107,7 @@ def sign_session_username(request: Request, username: str) -> str:
     return serializer.dumps({"username": username, "session_id": uuid4().hex})
 
 
-def get_request_origin(request: Request) -> str | None:
+def get_request_origin(request: Request) -> Optional[str]:
     origin = request.headers.get("origin")
     if origin:
         return origin.rstrip("/")
@@ -141,7 +142,7 @@ def validate_authenticated_origin(request: Request) -> None:
         )
 
 
-def get_authenticated_username(request: Request) -> str | None:
+def get_authenticated_username(request: Request) -> Optional[str]:
     signed_cookie = request.cookies.get(SESSION_COOKIE_NAME)
     if not signed_cookie:
         return None
@@ -190,7 +191,7 @@ def read_health() -> dict[str, str]:
 @router.get("/session")
 def read_session(
     request: Request,
-    db: sqlite3.Connection = Depends(get_db_connection),
+    db: Connection = Depends(get_db_connection),
 ) -> dict[str, str | bool | None]:
     username = get_authenticated_username(request)
     if username is None:
@@ -205,7 +206,7 @@ def login(
     request: Request,
     payload: LoginPayload,
     response: Response,
-    db: sqlite3.Connection = Depends(get_db_connection),
+    db: Connection = Depends(get_db_connection),
 ) -> dict[str, str | bool]:
     settings = get_settings(request)
     enforce_rate_limit(
@@ -262,7 +263,7 @@ def logout(
 
 @router.get("/board")
 def read_board(
-    db: sqlite3.Connection = Depends(get_db_connection),
+    db: Connection = Depends(get_db_connection),
     username: str = Depends(require_authenticated_username),
 ) -> dict[str, object]:
     try:
@@ -275,7 +276,7 @@ def read_board(
 def update_board(
     request: Request,
     payload: BoardEnvelope,
-    db: sqlite3.Connection = Depends(get_db_connection),
+    db: Connection = Depends(get_db_connection),
     username: str = Depends(require_authenticated_username),
 ) -> dict[str, object]:
     validate_authenticated_origin(request)
@@ -291,7 +292,7 @@ def update_board(
 
 @router.get("/chat-history")
 def read_chat_history(
-    db: sqlite3.Connection = Depends(get_db_connection),
+    db: Connection = Depends(get_db_connection),
     username: str = Depends(require_authenticated_username),
 ) -> dict[str, list[dict[str, str]]]:
     try:
@@ -337,7 +338,7 @@ async def run_ai_connectivity_test(
 async def run_ai_chat(
     request: Request,
     payload: AIChatPayload,
-    db: sqlite3.Connection = Depends(get_db_connection),
+    db: Connection = Depends(get_db_connection),
     username: str = Depends(require_authenticated_username),
     client: OpenRouterClient = Depends(get_openrouter_client),
 ) -> dict[str, object]:

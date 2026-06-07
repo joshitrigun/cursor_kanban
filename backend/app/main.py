@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
 from pathlib import Path
 from time import monotonic
+from typing import Optional, Union
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,9 +31,9 @@ async def lifespan(app: FastAPI):
         app.state.db.close()
 
 
-def create_app(db_path: str | Path | None = None) -> FastAPI:
+def create_app(db_path: Optional[Union[str, Path]] = None) -> FastAPI:
     app = FastAPI(title="Project Management MVP", lifespan=lifespan)
-    app.state.db_path = db_path if db_path is not None else default_db_path()
+    app.state.db_path = db_path  # None = auto (Postgres if DATABASE_URL set, else default SQLite)
     app.state.settings = load_app_settings()
     app.state.session_serializer = URLSafeTimedSerializer(
         app.state.settings.session_secret,

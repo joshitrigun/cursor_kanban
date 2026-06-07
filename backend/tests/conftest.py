@@ -1,9 +1,16 @@
+import os
 from pathlib import Path
 import sys
 
 import pytest
 from fastapi.testclient import TestClient
 
+# Must be set before app modules are imported so load_dotenv doesn't override
+# them with production values from .env.
+os.environ.setdefault("PM_ENV", "test")
+# Set to empty so load_dotenv (called inside create_app) won't override with
+# the real Postgres URL from .env — load_dotenv skips vars already in environ.
+os.environ["DATABASE_URL"] = ""
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:

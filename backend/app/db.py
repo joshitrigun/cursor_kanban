@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
 from uuid import uuid4
 
 import bcrypt
@@ -15,12 +15,8 @@ from app.board_seed import make_default_board
 SCHEMA_VERSION = 1
 IN_MEMORY_DB_PATH = ":memory:"
 
-# The username whose board is the shared family board.
-# All family members read and write this board.
 FAMILY_BOARD_OWNER = "dad"
 
-# Seeded accounts created on first startup.
-# Passwords are hashed with bcrypt on first run.
 SEED_USERS = [
     {"username": "dad",      "display_name": "Dad",      "password": "family2026"},
     {"username": "mom",      "display_name": "Mom",      "password": "family2026"},
@@ -52,21 +48,100 @@ def default_db_path() -> Path:
 
 
 def utc_now() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
-def connect(db_path: str | Path) -> sqlite3.Connection:
+def _use_postgres() -> bool:
+    return bool(os.getenv("DATABASE_URL"))
+
+
+class Row(dict):
+    """Dict subclass that also supports integer-index access (for fetchone()[0] patterns)."""
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+
+class _Result:
+    """Unified fetch interface for both sqlite3 and psycopg2 cursors."""
+
+    def __init__(self, cur, postgres: bool) -> None:
+        self._cur = cur
+        self._postgres = postgres
+
+    def _columns(self) -> list[str]:
+        return [d[0] for d in (self._cur.description or [])]
+
+    def _to_row(self, raw) -> Optional[Row]:
+        if raw is None:
+            return None
+        if self._postgres:
+            return Row(zip(self._columns(), raw))
+        return Row(zip(raw.keys(), tuple(raw)))
+
+    def fetchone(self) -> Optional[Row]:
+        return self._to_row(self._cur.fetchone())
+
+    def fetchall(self) -> list[Row]:
+        rows = self._cur.fetchall()
+        if self._postgres:
+            cols = self._columns()
+            return [Row(zip(cols, r)) for r in rows]
+        return [Row(zip(r.keys(), tuple(r))) for r in rows]
+
+
+class Connection:
+    """Thin wrapper over sqlite3 or psycopg2 that normalises placeholder style and row access."""
+
+    def __init__(self, raw, postgres: bool = False) -> None:
+        self._raw = raw
+        self._postgres = postgres
+
+    def _adapt(self, sql: str) -> str:
+        if self._postgres:
+            return sql.replace("?", "%s")
+        return sql
+
+    def execute(self, sql: str, params: tuple = ()) -> _Result:
+        if self._postgres:
+            cur = self._raw.cursor()
+            cur.execute(self._adapt(sql), params)
+            return _Result(cur, postgres=True)
+        result = self._raw.execute(sql, params)
+        return _Result(result, postgres=False)
+
+    def commit(self) -> None:
+        self._raw.commit()
+
+    def close(self) -> None:
+        self._raw.close()
+
+
+def connect(db_path: Union[str, Path, None] = None) -> Connection:
+    # Use Postgres only when no explicit path is given AND DATABASE_URL is set.
+    # An explicit db_path (including IN_MEMORY_DB_PATH for tests) always means SQLite.
+    if db_path is None and _use_postgres():
+        import psycopg2  # type: ignore[import]
+
+        raw = psycopg2.connect(os.environ["DATABASE_URL"])
+        raw.autocommit = False
+        return Connection(raw, postgres=True)
+
+    if db_path is None:
+        db_path = default_db_path()
     if db_path != IN_MEMORY_DB_PATH:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    connection = sqlite3.connect(db_path, check_same_thread=False)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    raw = sqlite3.connect(str(db_path), check_same_thread=False)
+    raw.row_factory = sqlite3.Row
+    raw.execute("PRAGMA foreign_keys = ON")
+    return Connection(raw, postgres=False)
 
 
-def initialize_database(connection: sqlite3.Connection) -> None:
-    connection.executescript(
+def initialize_database(connection: Connection) -> None:
+    for stmt in [
         """
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
@@ -75,8 +150,9 @@ def initialize_database(connection: sqlite3.Connection) -> None:
             hashed_password TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
-        );
-
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS trips (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL UNIQUE,
@@ -87,8 +163,9 @@ def initialize_database(connection: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS boards (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL UNIQUE,
@@ -98,8 +175,9 @@ def initialize_database(connection: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS chat_messages (
             id TEXT PRIMARY KEY,
             board_id TEXT NOT NULL,
@@ -109,12 +187,14 @@ def initialize_database(connection: sqlite3.Connection) -> None:
             board_mutation_json TEXT,
             created_at TEXT NOT NULL,
             FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_chat_messages_board_order
-            ON chat_messages (board_id, message_order);
+        )
+        """,
         """
-    )
+        CREATE INDEX IF NOT EXISTS idx_chat_messages_board_order
+            ON chat_messages (board_id, message_order)
+        """,
+    ]:
+        connection.execute(stmt)
 
     _migrate_users_table(connection)
     _seed_accounts(connection)
@@ -122,7 +202,10 @@ def initialize_database(connection: sqlite3.Connection) -> None:
     connection.commit()
 
 
-def _migrate_users_table(connection: sqlite3.Connection) -> None:
+def _migrate_users_table(connection: Connection) -> None:
+    # PRAGMA is SQLite-only; Postgres always starts with the full schema.
+    if _use_postgres():
+        return
     existing = {
         row[1] for row in connection.execute("PRAGMA table_info(users)").fetchall()
     }
@@ -134,7 +217,7 @@ def _migrate_users_table(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE users ADD COLUMN hashed_password TEXT")
 
 
-def _seed_accounts(connection: sqlite3.Connection) -> None:
+def _seed_accounts(connection: Connection) -> None:
     for seed in SEED_USERS:
         _ensure_seeded_user(
             connection, seed["username"], seed["display_name"], seed["password"]
@@ -142,7 +225,7 @@ def _seed_accounts(connection: sqlite3.Connection) -> None:
 
 
 def _ensure_seeded_user(
-    connection: sqlite3.Connection,
+    connection: Connection,
     username: str,
     display_name: str,
     plain_password: str,
@@ -192,7 +275,7 @@ def _ensure_seeded_user(
         )
 
 
-def _seed_trip(connection: sqlite3.Connection) -> None:
+def _seed_trip(connection: Connection) -> None:
     owner_row = connection.execute(
         "SELECT id FROM users WHERE username = ?", (FAMILY_BOARD_OWNER,)
     ).fetchone()
@@ -220,19 +303,14 @@ def _seed_trip(connection: sqlite3.Connection) -> None:
         )
 
 
-def get_user_for_auth(
-    connection: sqlite3.Connection,
-    username: str,
-) -> sqlite3.Row | None:
+def get_user_for_auth(connection: Connection, username: str) -> Row | None:
     return connection.execute(
         "SELECT id, username, display_name, hashed_password FROM users WHERE username = ?",
         (username,),
     ).fetchone()
 
 
-def get_board_for_username(
-    connection: sqlite3.Connection, username: str
-) -> dict[str, object]:
+def get_board_for_username(connection: Connection, username: str) -> dict[str, object]:
     board_row = get_board_row_for_username(connection, username)
     return {
         "board": json.loads(board_row["board_json"]),
@@ -242,7 +320,7 @@ def get_board_for_username(
 
 
 def update_board_for_username(
-    connection: sqlite3.Connection,
+    connection: Connection,
     username: str,
     board: dict[str, object],
 ) -> dict[str, object]:
@@ -265,15 +343,12 @@ def update_board_for_username(
     }
 
 
-def get_board_row_for_username(
-    connection: sqlite3.Connection, username: str
-) -> sqlite3.Row:
+def get_board_row_for_username(connection: Connection, username: str) -> Row:
     # All family members share the board owned by FAMILY_BOARD_OWNER.
     owner_row = connection.execute(
         "SELECT id FROM users WHERE username = ?", (FAMILY_BOARD_OWNER,)
     ).fetchone()
     if owner_row is None:
-        # Fall back to the requesting user's own board if owner doesn't exist.
         owner_row = connection.execute(
             "SELECT id FROM users WHERE username = ?", (username,)
         ).fetchone()
@@ -290,7 +365,7 @@ def get_board_row_for_username(
 
 
 def get_chat_history_for_username(
-    connection: sqlite3.Connection,
+    connection: Connection,
     username: str,
 ) -> list[dict[str, Any]]:
     board_row = get_board_row_for_username(connection, username)
@@ -312,17 +387,18 @@ def get_chat_history_for_username(
 
 
 def append_chat_exchange_for_username(
-    connection: sqlite3.Connection,
+    connection: Connection,
     username: str,
     user_message: str,
     assistant_message: str,
-    board_mutation: dict[str, Any] | None = None,
+    board_mutation: Optional[dict[str, Any]] = None,
 ) -> None:
     board_row = get_board_row_for_username(connection, username)
-    current_order = connection.execute(
-        "SELECT COALESCE(MAX(message_order), 0) FROM chat_messages WHERE board_id = ?",
+    result = connection.execute(
+        "SELECT COALESCE(MAX(message_order), 0) AS max_order FROM chat_messages WHERE board_id = ?",
         (board_row["id"],),
-    ).fetchone()[0]
+    ).fetchone()
+    current_order = result["max_order"]
     now = utc_now()
 
     connection.execute(
@@ -348,13 +424,9 @@ def append_chat_exchange_for_username(
     connection.commit()
 
 
-def get_trip_for_user(
-    connection: sqlite3.Connection, username: str
-) -> dict[str, Any] | None:
-    # Trip context is stored against the family board owner.
-    effective_username = FAMILY_BOARD_OWNER
+def get_trip_for_user(connection: Connection, username: str) -> dict[str, Any] | None:
     user_row = connection.execute(
-        "SELECT id FROM users WHERE username = ?", (effective_username,)
+        "SELECT id FROM users WHERE username = ?", (FAMILY_BOARD_OWNER,)
     ).fetchone()
     if user_row is None:
         return None
@@ -375,7 +447,7 @@ def get_trip_for_user(
 
 
 def upsert_trip_for_user(
-    connection: sqlite3.Connection,
+    connection: Connection,
     username: str,
     name: str,
     destination: str,
