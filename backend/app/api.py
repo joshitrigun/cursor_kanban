@@ -413,7 +413,7 @@ async def run_ai_chat(
 
 @router.get("/trip")
 def read_trip(
-    db: sqlite3.Connection = Depends(get_db_connection),
+    db: Connection = Depends(get_db_connection),
     username: str = Depends(require_authenticated_username),
 ) -> dict[str, object]:
     trip = get_trip_for_user(db, username)
@@ -424,7 +424,7 @@ def read_trip(
 def update_trip(
     request: Request,
     payload: TripPayload,
-    db: sqlite3.Connection = Depends(get_db_connection),
+    db: Connection = Depends(get_db_connection),
     username: str = Depends(require_authenticated_username),
 ) -> dict[str, object]:
     validate_authenticated_origin(request)
@@ -481,7 +481,7 @@ async def _fetch_og_metadata(url: str) -> dict[str, str]:
 async def quick_add_card(
     request: Request,
     payload: QuickAddPayload,
-    db: sqlite3.Connection = Depends(get_db_connection),
+    db: Connection = Depends(get_db_connection),
     username: str = Depends(require_authenticated_username),
     client: OpenRouterClient = Depends(get_openrouter_client),
 ) -> dict[str, object]:
