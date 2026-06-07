@@ -412,7 +412,7 @@ export const AppShell = () => {
                 type="text"
                 value={quickAddText}
                 onChange={(e) => setQuickAddText(e.target.value)}
-                placeholder="Paste a link or type an idea to add to Ideas..."
+                placeholder="Paste a link or type an idea for the Ideas Inbox..."
                 className="flex-1 rounded-2xl border border-[var(--stroke)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--navy-dark)] outline-none transition focus:border-[var(--primary-blue)]"
                 disabled={isQuickAdding}
               />

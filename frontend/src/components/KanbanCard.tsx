@@ -8,6 +8,21 @@ type KanbanCardProps = {
   onDelete: (cardId: string) => void;
 };
 
+const STATUS_STYLES: Record<string, string> = {
+  idea: "bg-yellow-100 text-yellow-800",
+  researching: "bg-blue-100 text-blue-700",
+  shortlisted: "bg-orange-100 text-orange-700",
+  booked: "bg-green-100 text-green-700",
+  confirmed: "bg-emerald-100 text-emerald-800",
+  skipped: "bg-gray-100 text-gray-700",
+};
+
+const formatStatus = (status: string) =>
+  status
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
 export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: card.id });
@@ -34,8 +49,8 @@ export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap gap-2">
             {card.status && (
-              <span className="inline-block rounded-full bg-[var(--accent-yellow)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
-                {card.status}
+              <span className={clsx("inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", STATUS_STYLES[card.status] ?? "bg-gray-100 text-gray-700")}>
+                {formatStatus(card.status)}
               </span>
             )}
             {card.ai_tag && (

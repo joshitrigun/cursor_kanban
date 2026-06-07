@@ -17,13 +17,57 @@ const TAG_COLORS: Record<string, string> = {
 const STATUS_COLORS: Record<string, string> = {
   idea: "bg-yellow-100 text-yellow-800",
   researching: "bg-blue-100 text-blue-700",
+  shortlisted: "bg-orange-100 text-orange-700",
   booked: "bg-green-100 text-green-700",
-  maybe: "bg-gray-100 text-gray-700",
-  cancelled: "bg-red-100 text-red-700",
+  confirmed: "bg-emerald-100 text-emerald-800",
+  skipped: "bg-gray-100 text-gray-700",
 };
+
+const displayColumnTitle = (column: Column) =>
+  column.id === "col-unscheduled" && column.title === "Unscheduled" ? "Ideas Inbox" : column.title;
+
+const formatStatus = (status: string) =>
+  status
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 
 const sortCardsByTime = (cards: Card[]) =>
   [...cards].sort((a, b) => (a.start_time ?? "99:99").localeCompare(b.start_time ?? "99:99"));
+
+const DAY_SECTIONS = [
+  { label: "Morning", hint: "Breakfast, checkout, travel, first activity", from: 5, to: 12 },
+  { label: "Afternoon", hint: "Lunch, main activity, downtime", from: 12, to: 17 },
+  { label: "Evening", hint: "Dinner, village time, return plan", from: 17, to: 24 },
+  { label: "Anytime", hint: "Ideas that still need a time", from: null, to: null },
+];
+
+const getStartHour = (card: Card) => {
+  if (!card.start_time) {
+    return null;
+  }
+  const hour = Number.parseInt(card.start_time.split(":")[0] ?? "", 10);
+  return Number.isNaN(hour) ? null : hour;
+};
+
+const getSectionLabel = (card: Card) => {
+  const hour = getStartHour(card);
+
+  if (hour === null) {
+    return "Anytime";
+  }
+
+  const section = DAY_SECTIONS.find(
+    ({ from, to }) => from !== null && to !== null && hour >= from && hour < to
+  );
+  return section?.label ?? "Anytime";
+};
+
+const isMealCard = (card: Card) =>
+  card.ai_tag === "Food" || /breakfast|brunch|lunch|dinner|meal|restaurant/i.test(`${card.title} ${card.details}`);
+
+const isTravelCard = (card: Card) =>
+  card.ai_tag === "Transport" || /drive|travel|transfer|flight|airport|ferry|gondola|check-in|checkout/i.test(`${card.title} ${card.details}`);
 
 export const DayPlanView = ({ column, cards, onLock, onUnlock }: DayPlanViewProps) => {
   const locked = column.locked ?? false;
@@ -31,15 +75,20 @@ export const DayPlanView = ({ column, cards, onLock, onUnlock }: DayPlanViewProp
   const sortedCards = sortCardsByTime(cards);
   const bookedCount = sortedCards.filter((card) => card.status === "booked").length;
   const researchingCount = sortedCards.filter((card) => card.status === "researching").length;
-  const foodCount = sortedCards.filter((card) => card.ai_tag === "Food").length;
+  const foodCount = sortedCards.filter(isMealCard).length;
+  const travelCount = sortedCards.filter(isTravelCard).length;
   const isPackedDay = sortedCards.length >= 5;
+  const cardsBySection = DAY_SECTIONS.map((section) => ({
+    ...section,
+    cards: sortedCards.filter((card) => getSectionLabel(card) === section.label),
+  }));
 
   return (
     <div className="mx-auto w-full max-w-3xl">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4 rounded-3xl border border-[var(--stroke)] bg-white/80 p-5 shadow-[var(--shadow)] backdrop-blur">
         <div>
           <h2 className="font-display text-2xl font-semibold text-[var(--navy-dark)]">
-            {column.title}
+            {displayColumnTitle(column)}
           </h2>
           <p className="mt-1 text-sm text-[var(--gray-text)]">
             {sortedCards.length === 0
@@ -56,6 +105,11 @@ export const DayPlanView = ({ column, cards, onLock, onUnlock }: DayPlanViewProp
             {isDayColumn && foodCount === 0 && sortedCards.length > 0 ? (
               <span className="rounded-full bg-yellow-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-yellow-800">
                 No meal yet
+              </span>
+            ) : null}
+            {isDayColumn && travelCount === 0 && sortedCards.length > 0 ? (
+              <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-sky-700">
+                Add travel time
               </span>
             ) : null}
             {isDayColumn && isPackedDay ? (
@@ -95,7 +149,7 @@ export const DayPlanView = ({ column, cards, onLock, onUnlock }: DayPlanViewProp
       {sortedCards.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-[var(--stroke)] bg-white/70 px-8 py-14 text-center shadow-[var(--shadow)]">
           <p className="font-display text-xl font-semibold text-[var(--navy-dark)]">
-            {isDayColumn ? "Build this day from the basics" : "Use this as the idea inbox"}
+            {isDayColumn ? "Build this day from the basics" : "Use this as the Ideas Inbox"}
           </p>
           <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[var(--gray-text)]">
             {isDayColumn
@@ -104,74 +158,117 @@ export const DayPlanView = ({ column, cards, onLock, onUnlock }: DayPlanViewProp
           </p>
         </div>
       ) : (
-        <ol className="relative flex flex-col gap-4 before:absolute before:left-5 before:top-4 before:h-[calc(100%-2rem)] before:w-px before:bg-[var(--stroke)] sm:before:left-24">
-          {sortedCards.map((card, index) => {
-            const tagColor = card.ai_tag ? (TAG_COLORS[card.ai_tag] ?? "bg-gray-100 text-gray-600") : null;
-            const statusColor = card.status ? (STATUS_COLORS[card.status] ?? "bg-gray-100 text-gray-700") : null;
-            const timeLabel = card.start_time && card.end_time
-              ? `${card.start_time}-${card.end_time}`
-              : card.start_time ?? "Any time";
-            return (
-              <li
-                key={card.id}
-                className="relative grid gap-3 sm:grid-cols-[7rem_1fr]"
-              >
-                <div className="flex items-start gap-3 sm:justify-end">
-                  <div className="relative z-10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border-4 border-white bg-[var(--accent-yellow)] text-xs font-bold text-white shadow-sm sm:order-2">
-                    {index + 1}
-                  </div>
-                  <p className="pt-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--navy-dark)] sm:order-1 sm:text-right">
-                    {timeLabel}
-                  </p>
+        <div className="flex flex-col gap-5">
+          {isDayColumn && (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-[var(--stroke)] bg-white/80 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--gray-text)]">Meals</p>
+                <p className="mt-2 text-sm font-semibold text-[var(--navy-dark)]">
+                  {foodCount > 0 ? `${foodCount} planned` : "Needs lunch or dinner"}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-[var(--stroke)] bg-white/80 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--gray-text)]">Travel</p>
+                <p className="mt-2 text-sm font-semibold text-[var(--navy-dark)]">
+                  {travelCount > 0 ? `${travelCount} travel block${travelCount === 1 ? "" : "s"}` : "Add drive or transfer"}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-[var(--stroke)] bg-white/80 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--gray-text)]">Pace</p>
+                <p className="mt-2 text-sm font-semibold text-[var(--navy-dark)]">
+                  {isPackedDay ? "Packed day" : "Room to breathe"}
+                </p>
+              </div>
+            </div>
+          )}
+          {cardsBySection.map((section) => (
+            <section key={section.label} className="rounded-3xl border border-[var(--stroke)] bg-white/70 p-4 shadow-[var(--shadow)] sm:p-5">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-display text-lg font-semibold text-[var(--navy-dark)]">{section.label}</h3>
+                  <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--gray-text)]">{section.hint}</p>
                 </div>
-                <div className="min-w-0 rounded-2xl border border-[var(--stroke)] bg-white p-5 shadow-[var(--shadow)]">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-display text-base font-semibold text-[var(--navy-dark)]">
-                      {card.ai_title || card.title}
-                    </h3>
-                    {card.status && statusColor && (
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusColor}`}>
-                        {card.status}
-                      </span>
-                    )}
-                    {card.ai_tag && tagColor && (
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tagColor}`}>
-                        {card.ai_tag}
-                      </span>
-                    )}
-                  </div>
-                  {(card.start_time || card.end_time || card.location) && (
-                    <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--gray-text)]">
-                      {[
-                        card.location,
-                      ].filter(Boolean).join(" · ")}
-                    </p>
-                  )}
-                  <p className="mt-1 text-sm leading-6 text-[var(--gray-text)]">
-                    {card.ai_summary || card.details}
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-4">
-                    {card.content_url && (
-                      <a
-                        href={card.content_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-[var(--primary-blue)] hover:underline"
+                <span className="rounded-full bg-[var(--surface)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--navy-dark)]">
+                  {section.cards.length} item{section.cards.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              {section.cards.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-[var(--stroke)] bg-white/60 px-4 py-5 text-sm text-[var(--gray-text)]">
+                  Nothing planned here yet.
+                </p>
+              ) : (
+                <ol className="relative flex flex-col gap-4 before:absolute before:left-5 before:top-4 before:h-[calc(100%-2rem)] before:w-px before:bg-[var(--stroke)] sm:before:left-24">
+                  {section.cards.map((card, index) => {
+                    const tagColor = card.ai_tag ? (TAG_COLORS[card.ai_tag] ?? "bg-gray-100 text-gray-600") : null;
+                    const statusColor = card.status ? (STATUS_COLORS[card.status] ?? "bg-gray-100 text-gray-700") : null;
+                    const timeLabel = card.start_time && card.end_time
+                      ? `${card.start_time}-${card.end_time}`
+                      : card.start_time ?? "Any time";
+                    return (
+                      <li
+                        key={card.id}
+                        className="relative grid gap-3 sm:grid-cols-[7rem_1fr]"
                       >
-                        View link
-                      </a>
-                    )}
-                    {card.suggested_by && (
-                      <span className="text-xs text-[var(--gray-text)]">
-                        by {card.suggested_by}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
+                        <div className="flex items-start gap-3 sm:justify-end">
+                          <div className="relative z-10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border-4 border-white bg-[var(--accent-yellow)] text-xs font-bold text-white shadow-sm sm:order-2">
+                            {index + 1}
+                          </div>
+                          <p className="pt-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--navy-dark)] sm:order-1 sm:text-right">
+                            {timeLabel}
+                          </p>
+                        </div>
+                        <div className="min-w-0 rounded-2xl border border-[var(--stroke)] bg-white p-5 shadow-[var(--shadow)]">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="font-display text-base font-semibold text-[var(--navy-dark)]">
+                              {card.ai_title || card.title}
+                            </h3>
+                            {card.status && statusColor && (
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusColor}`}>
+                                {formatStatus(card.status)}
+                              </span>
+                            )}
+                            {card.ai_tag && tagColor && (
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tagColor}`}>
+                                {card.ai_tag}
+                              </span>
+                            )}
+                          </div>
+                          {(card.start_time || card.end_time || card.location) && (
+                            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--gray-text)]">
+                              {[
+                                card.location,
+                              ].filter(Boolean).join(" · ")}
+                            </p>
+                          )}
+                          <p className="mt-1 text-sm leading-6 text-[var(--gray-text)]">
+                            {card.ai_summary || card.details}
+                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-4">
+                            {card.content_url && (
+                              <a
+                                href={card.content_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-[var(--primary-blue)] hover:underline"
+                              >
+                                View link
+                              </a>
+                            )}
+                            {card.suggested_by && (
+                              <span className="text-xs text-[var(--gray-text)]">
+                                by {card.suggested_by}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </section>
+          ))}
+        </div>
       )}
 
       {isDayColumn && sortedCards.length > 0 && !locked && bookedCount < sortedCards.length && (

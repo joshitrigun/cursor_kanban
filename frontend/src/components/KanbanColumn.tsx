@@ -23,6 +23,7 @@ export const KanbanColumn = ({
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const isUnscheduled = column.id === "col-unscheduled";
   const locked = column.locked ?? false;
+  const columnTitle = isUnscheduled && column.title === "Unscheduled" ? "Ideas Inbox" : column.title;
 
   return (
     <section
@@ -50,14 +51,14 @@ export const KanbanColumn = ({
             </span>
           </div>
           <input
-            value={column.title}
+            value={columnTitle}
             onChange={(event) => onRename(column.id, event.target.value)}
             className="mt-3 w-full bg-transparent font-display text-lg font-semibold text-[var(--navy-dark)] outline-none"
             aria-label="Column title"
           />
           {isUnscheduled ? (
             <p className="mt-1 text-xs leading-5 text-[var(--gray-text)]">
-              Drop raw ideas here before assigning them to a trip day.
+              Drop family links, restaurants, and raw ideas here before assigning them to a trip day.
             </p>
           ) : locked ? (
             <p className="mt-1 text-xs leading-5 text-green-700">

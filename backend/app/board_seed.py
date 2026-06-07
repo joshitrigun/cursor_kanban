@@ -122,7 +122,7 @@ def make_default_board(start_date: str, end_date: str) -> dict:
 
     columns = [{
         "id": "col-unscheduled",
-        "title": "Unscheduled",
+        "title": "Ideas Inbox",
         "cardIds": [],
     }]
     date_to_col: dict[str, str] = {}

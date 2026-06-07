@@ -4,16 +4,29 @@ This document turns the project outline into an execution plan that can be appro
 
 ## Current Baseline
 
-- The existing frontend in [frontend](d:\learn\pm\pm\frontend) is a standalone Next.js app.
-- The home page renders a client-side Kanban board directly.
-- The board already supports column rename, add card, delete card, and drag-and-drop card movement.
+- The product is now a family vacation planner for a Vancouver and Whistler trip, not a generic project management board.
+- The frontend in [frontend](d:\learn\pm\pm\frontend) is a Next.js app with a travel-focused board, Day 1-Day 6 itinerary tabs, an Ideas Inbox, quick-add, and AI chat.
+- The authenticated family experience supports named seeded users sharing one family trip board.
+- The board supports column rename, add card, delete card, drag-and-drop card movement, day finalization, and timeline-style day planning.
 - Frontend tests already exist with Vitest and Playwright.
-- A FastAPI scaffold now exists in [backend](d:\learn\pm\pm\backend) with placeholder HTML at `/` and a JSON health route at `/api/health`.
+- A FastAPI backend exists in [backend](d:\learn\pm\pm\backend) with API routes, SQLite persistence, session auth, AI routes, and a JSON health route at `/api/health`.
 - The exported frontend is now served by FastAPI at `/` when [frontend/out](d:\learn\pm\pm\frontend\out) is present.
-- A backend-managed MVP login flow now gates access to the board with the hardcoded credentials `user` / `password`.
+- A backend-managed MVP login flow gates access with seeded family accounts using hashed passwords.
 - Board state is persisted in SQLite and loaded from `/api/board`.
+- Trip metadata is persisted in SQLite and loaded from `/api/trip`.
 - AI requests run through backend-only OpenRouter routes and validated board mutations are applied on the backend.
 - The authenticated UI includes a responsive chat sidebar that restores persisted chat history from `/api/chat-history`.
+
+## Travel Product Roadmap
+
+The next product work should optimize for itinerary confidence and family coordination rather than generic task management.
+
+- Make the day itinerary the primary experience: Morning/Afternoon/Evening/Anytime sections, meal and travel gaps, pace warnings, and mobile-first day switching.
+- Treat Unscheduled as the family Ideas Inbox: category grouping, suggested-by visibility, and quick actions to assign, shortlist, or reject ideas.
+- Use travel-native statuses: Idea, Researching, Shortlisted, Booked, Confirmed, and Skipped.
+- Add Trip Readiness: hotels, transport, booked activities, meals, packing, documents, and emergency info.
+- Add decision support to cards: owner, deadline, cost estimate, booking required, and reservation link.
+- Make AI planner actions reviewable: optimize a day, find lunch nearby, rebalance crowded days, create rainy-day alternatives, and apply proposed changes only after user approval.
 
 ## Current Status
 
@@ -24,8 +37,8 @@ This document turns the project outline into an execution plan that can be appro
 
 ## Ground Rules
 
-- Keep the MVP single-user at login time, but model data by user in the database for future expansion.
-- Keep exactly one board per signed-in user for the MVP.
+- Keep one shared family trip board for the MVP while preserving user records for attribution and future permissions.
+- Keep the board JSON contract simple, but present the product as a trip itinerary and family planning workspace.
 - Prefer simple, explicit contracts over abstractions.
 - Backend remains the source of truth once persistence is introduced.
 - AI never mutates board state directly from the frontend; the backend validates and applies structured changes.

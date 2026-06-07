@@ -43,4 +43,17 @@ describe("KanbanBoard", () => {
 
     expect(within(column).queryByText("New card")).not.toBeInTheDocument();
   });
+
+  it("shows day itinerary sections and gap cues", async () => {
+    render(<KanbanBoard />);
+
+    await userEvent.click(screen.getByRole("button", { name: /day 2/i }));
+
+    expect(screen.getByRole("heading", { name: "Morning" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Afternoon" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Evening" })).toBeInTheDocument();
+    expect(screen.getByText("Meals")).toBeInTheDocument();
+    expect(screen.getByText("Travel")).toBeInTheDocument();
+    expect(screen.getByText("Pace")).toBeInTheDocument();
+  });
 });

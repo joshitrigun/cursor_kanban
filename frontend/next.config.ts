@@ -7,6 +7,9 @@ const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 const isVercel = Boolean(apiUrl);
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    root: __dirname,
+  },
   ...(isVercel ? {} : { output: "export" }),
   async rewrites() {
     if (!isVercel) return [];

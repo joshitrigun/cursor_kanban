@@ -155,6 +155,8 @@ export const KanbanBoard = ({
   };
 
   const activeCard = activeCardId ? cardsById[activeCardId] : null;
+  const getColumnTitle = (column: BoardData["columns"][number]) =>
+    column.id === "col-unscheduled" && column.title === "Unscheduled" ? "Ideas Inbox" : column.title;
 
   return (
     <div className="relative overflow-hidden">
@@ -245,7 +247,7 @@ export const KanbanBoard = ({
                 {column.locked && (
                   <span className="h-2 w-2 rounded-full bg-green-400" />
                 )}
-                {column.title}
+                {getColumnTitle(column)}
                 <span className="rounded-full bg-white/25 px-2 py-0.5 text-[10px]">
                   {column.cardIds.length}
                 </span>

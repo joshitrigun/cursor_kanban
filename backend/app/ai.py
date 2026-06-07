@@ -33,7 +33,9 @@ The JSON must match this shape:
 }
 Only include a non-null board when you are confident a board update should be applied.
 When no board update is needed, set board to null.
-The board has three columns: Ideas, To Research, and Booked & Locked. Preserve all three columns.
+The board has an Ideas Inbox column with id col-unscheduled and one fixed day column per trip day.
+Preserve all existing column ids and card references.
+Use travel statuses when helpful: idea, researching, shortlisted, booked, confirmed, skipped.
 Keep all card references valid.
 """
 

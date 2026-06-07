@@ -2,7 +2,7 @@ export type Card = {
   id: string;
   title: string;
   details: string;
-  status?: "idea" | "researching" | "booked" | "maybe" | "cancelled" | string;
+  status?: "idea" | "researching" | "shortlisted" | "booked" | "confirmed" | "skipped" | string;
   start_time?: string;
   end_time?: string;
   location?: string;
@@ -30,7 +30,7 @@ export type BoardData = {
 
 export const initialData: BoardData = {
   columns: [
-    { id: "col-unscheduled", title: "Unscheduled", cardIds: ["card-1", "card-2"] },
+    { id: "col-unscheduled", title: "Ideas Inbox", cardIds: ["card-1", "card-2"] },
     { id: "col-day-1", title: "Day 1 \u00b7 Jun 28", cardIds: [] },
     { id: "col-day-2", title: "Day 2 \u00b7 Jun 29", cardIds: ["card-3"] },
     { id: "col-day-3", title: "Day 3 \u00b7 Jun 30", cardIds: [] },
