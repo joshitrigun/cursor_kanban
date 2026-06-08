@@ -136,6 +136,8 @@ def validate_authenticated_origin(request: Request) -> None:
 
     allowed_origins = {str(request.base_url).rstrip("/")}
     allowed_origins.update(settings.trusted_origins)
+    if settings.is_development:
+        allowed_origins.add("http://localhost:3000")
     if origin not in allowed_origins:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

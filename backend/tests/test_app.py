@@ -453,6 +453,24 @@ def test_ai_chat_normalizes_time_from_created_card_text(client: TestClient) -> N
     assert persisted["board"]["cards"]["card-ai-lunch"]["start_time"] == "13:00"
 
 
+def test_ai_chat_accepts_localhost_frontend_origin_in_development(client: TestClient) -> None:
+    class StubOpenRouterClient:
+        async def chat(self, user_message: str, system_prompt: str | None = None) -> str:
+            return '{"assistantMessage":"Local browser origin accepted.","board":null}'
+
+    client.app.state.openrouter_client = StubOpenRouterClient()
+    client.post("/api/login", json={"username": "dad", "password": "family2026"})
+
+    response = client.post(
+        "/api/ai/chat",
+        json={"message": "Can localhost send AI chat?"},
+        headers={"Origin": "http://localhost:3000"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["assistantMessage"] == "Local browser origin accepted."
+
+
 def test_ai_chat_rejects_invalid_model_output(client: TestClient) -> None:
     class StubOpenRouterClient:
         async def chat(self, user_message: str, system_prompt: str | None = None) -> str:
