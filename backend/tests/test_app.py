@@ -1,4 +1,5 @@
-﻿from pathlib import Path
+﻿import json
+from pathlib import Path
 
 import sqlite3
 import pytest
@@ -414,6 +415,42 @@ def test_ai_chat_applies_validated_board_update(client: TestClient) -> None:
 
     history = get_chat_history_for_username(client.app.state.db, "dad")
     assert history[-1]["boardMutation"]["columns"][0]["title"] == "Ready"
+
+
+def test_ai_chat_normalizes_time_from_created_card_text(client: TestClient) -> None:
+    client.post("/api/login", json={"username": "dad", "password": "family2026"})
+    board = client.get("/api/board").json()["board"]
+    board["cards"]["card-ai-lunch"] = {
+        "id": "card-ai-lunch",
+        "title": "Lunch at Cactus Cafe - 1:00 PM",
+        "details": "Family lunch in Vancouver.",
+        "status": "idea",
+        "ai_tag": "Food",
+    }
+    board["columns"][1]["cardIds"].append("card-ai-lunch")
+
+    class StubOpenRouterClient:
+        async def chat(self, user_message: str, system_prompt: str | None = None) -> str:
+            return json.dumps(
+                {
+                    "assistantMessage": "Added lunch.",
+                    "board": board,
+                }
+            )
+
+    client.app.state.openrouter_client = StubOpenRouterClient()
+
+    response = client.post(
+        "/api/ai/chat",
+        json={"message": "Add Lunch at Cactus Cafe - 1:00 PM to Day 1."},
+        headers={"Origin": "http://testserver"},
+    )
+    persisted = client.get("/api/board").json()
+
+    assert response.status_code == 200
+    assert response.json()["boardUpdated"] is True
+    assert response.json()["board"]["cards"]["card-ai-lunch"]["start_time"] == "13:00"
+    assert persisted["board"]["cards"]["card-ai-lunch"]["start_time"] == "13:00"
 
 
 def test_ai_chat_rejects_invalid_model_output(client: TestClient) -> None:

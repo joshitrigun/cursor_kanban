@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.ai import AIResponseValidationError, MAX_PROMPT_CHARS, build_structured_user_prompt, parse_structured_assistant_response
+from app.ai import AIResponseValidationError, MAX_PROMPT_CHARS, build_structured_user_prompt, extract_time_from_text, normalize_board_card_times, parse_structured_assistant_response
 
 
 def test_build_structured_user_prompt_includes_board_history_and_message() -> None:
@@ -17,6 +17,38 @@ def test_build_structured_user_prompt_includes_board_history_and_message() -> No
     assert "user: hello" in prompt
     assert "Latest user request:" in prompt
     assert "rename a column" in prompt
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Lunch at Cactus Cafe - 1:00 PM", "13:00"),
+        ("Coffee stop at 10:30 AM", "10:30"),
+        ("Dinner reservation 6 PM", "18:00"),
+        ("Museum at 13:45", "13:45"),
+        ("No time mentioned", None),
+    ],
+)
+def test_extract_time_from_text_normalizes_common_trip_times(text: str, expected: str | None) -> None:
+    assert extract_time_from_text(text) == expected
+
+
+def test_normalize_board_card_times_adds_missing_start_time_from_ai_text() -> None:
+    board = {
+        "columns": [{"id": "col-day-1", "title": "Day 1", "cardIds": ["card-lunch"]}],
+        "cards": {
+            "card-lunch": {
+                "id": "card-lunch",
+                "title": "Lunch at Cactus Cafe - 1:00 PM",
+                "details": "Family lunch in Vancouver.",
+                "status": "idea",
+            }
+        },
+    }
+
+    normalized = normalize_board_card_times(board)
+
+    assert normalized["cards"]["card-lunch"]["start_time"] == "13:00"
 
 
 def test_parse_structured_assistant_response_accepts_json_code_fence() -> None:

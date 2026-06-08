@@ -18,6 +18,7 @@ from app.ai import (
     STRUCTURED_SYSTEM_PROMPT,
     build_card_enrichment_user_prompt,
     build_structured_user_prompt,
+    normalize_board_card_times,
     parse_card_enrichment_response,
     parse_structured_assistant_response,
 )
@@ -390,6 +391,7 @@ async def run_ai_chat(
     board_mutation = None
     if structured_response.board is not None:
         board_mutation = structured_response.board.model_dump(mode="json")
+        board_mutation = normalize_board_card_times(board_mutation)
         response_payload = update_board_for_username(
             db,
             username,

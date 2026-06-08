@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from app.schemas import StructuredAssistantResponse
@@ -37,7 +38,16 @@ The board has an Ideas Inbox column with id col-unscheduled and one fixed day co
 Preserve all existing column ids and card references.
 Use travel statuses when helpful: idea, researching, shortlisted, booked, confirmed, skipped.
 Keep all card references valid.
+When the user mentions a time for a card, set start_time in 24-hour HH:MM format.
+Do not rely on putting times only in the title or details.
 """
+
+
+TIME_PATTERN = re.compile(
+    r"(?<!\d)(?P<hour>1[0-2]|0?[1-9])(?::(?P<minute>[0-5]\d))?\s*(?P<period>a\.?m\.?|p\.?m\.?)\b"
+    r"|(?<!\d)(?P<hour24>[01]?\d|2[0-3]):(?P<minute24>[0-5]\d)(?!\d)",
+    re.IGNORECASE,
+)
 
 CARD_ENRICHMENT_SYSTEM_PROMPT = """You are a travel planning assistant. Given a URL and any available metadata, return exactly one JSON object. No surrounding text.
 {
@@ -68,6 +78,37 @@ def parse_card_enrichment_response(raw: str) -> dict[str, str]:
         }
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         raise AIResponseValidationError("Card enrichment response was not valid JSON.") from exc
+
+
+def extract_time_from_text(text: str) -> str | None:
+    match = TIME_PATTERN.search(text)
+    if not match:
+        return None
+
+    if match.group("hour24") is not None:
+        return f"{int(match.group('hour24')):02d}:{match.group('minute24')}"
+
+    hour = int(match.group("hour"))
+    minute = match.group("minute") or "00"
+    period = match.group("period").lower()
+
+    if period.startswith("p") and hour != 12:
+        hour += 12
+    if period.startswith("a") and hour == 12:
+        hour = 0
+
+    return f"{hour:02d}:{minute}"
+
+
+def normalize_board_card_times(board: dict[str, Any]) -> dict[str, Any]:
+    for card in board.get("cards", {}).values():
+        if not isinstance(card, dict) or card.get("start_time"):
+            continue
+        text = f"{card.get('title', '')} {card.get('details', '')}"
+        start_time = extract_time_from_text(text)
+        if start_time:
+            card["start_time"] = start_time
+    return board
 
 
 def build_structured_user_prompt(
