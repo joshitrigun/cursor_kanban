@@ -15,6 +15,10 @@ const flushMicrotasks = async () => {
   await Promise.resolve();
 };
 
+const showAllDays = async () => {
+  await userEvent.click(screen.getByRole("button", { name: /all days/i }));
+};
+
 const mockFetch = vi.fn<
   (input: RequestInfo | URL, init?: RequestInit) => Promise<MockFetchResponse>
 >();
@@ -135,6 +139,9 @@ describe("AppShell", () => {
     await waitFor(() => {
       expect(screen.getByText(/signed in as user/i)).toBeInTheDocument();
     });
+
+    await showAllDays();
+
     expect(screen.getAllByTestId(/column-/i)).toHaveLength(7);
   });
 
@@ -156,7 +163,8 @@ describe("AppShell", () => {
         ok: true,
         json: async () => ({
           assistantMessage: "The board looks good.",
-          boardUpdated: false,
+          summaryOnly: false,
+          proposedBoard: null,
           board: initialData,
           boardVersion: 1,
           schemaVersion: 1,
@@ -243,7 +251,8 @@ describe("AppShell", () => {
         ok: true,
         json: async () => ({
           assistantMessage: "Done.",
-          boardUpdated: false,
+          summaryOnly: false,
+          proposedBoard: null,
           board: initialData,
           boardVersion: 2,
           schemaVersion: 1,
@@ -255,6 +264,8 @@ describe("AppShell", () => {
     await waitFor(() => {
       expect(screen.getByText(/signed in as user/i)).toBeInTheDocument();
     });
+
+    await showAllDays();
 
     vi.useFakeTimers();
 
@@ -277,6 +288,13 @@ describe("AppShell", () => {
     });
 
     expect(mockFetch).toHaveBeenCalledTimes(4);
+
+    const boardSaveCall = mockFetch.mock.calls[3];
+    const boardSaveRequest = boardSaveCall[1] as RequestInit;
+    const boardSavePayload = JSON.parse(String(boardSaveRequest.body));
+
+    expect(boardSavePayload.expectedBoardVersion).toBe(1);
+    expect(boardSavePayload.board.columns[0].title).toBe("Ready");
 
     expect(mockFetch).not.toHaveBeenCalledWith(
       "/api/ai/chat",
@@ -343,6 +361,8 @@ describe("AppShell", () => {
       expect(screen.getByText(/signed in as user/i)).toBeInTheDocument();
     });
 
+    await showAllDays();
+
     vi.useFakeTimers();
 
     const titleInput = screen.getAllByLabelText(/column title/i)[0];
@@ -365,6 +385,7 @@ describe("AppShell", () => {
     expect(boardSaveCall[0]).toBe("/api/board");
     expect(requestInit.method).toBe("PUT");
     expect(payload.board.columns[0].title).toBe("Ready Again");
+    expect(payload.expectedBoardVersion).toBe(1);
   });
 
   it("clears chat messages after logout", async () => {
@@ -385,7 +406,8 @@ describe("AppShell", () => {
         ok: true,
         json: async () => ({
           assistantMessage: "The board looks good.",
-          boardUpdated: false,
+          summaryOnly: false,
+          proposedBoard: null,
           board: initialData,
           boardVersion: 1,
           schemaVersion: 1,

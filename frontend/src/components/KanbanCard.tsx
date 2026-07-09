@@ -1,10 +1,19 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import clsx from "clsx";
-import type { Card } from "@/lib/kanban";
+import {
+  TRAVEL_CARD_STATUSES,
+  formatCardStatus,
+  formatCardType,
+  normalizeCardStatus,
+  normalizeCardType,
+  type Card,
+  type TravelCardStatus,
+} from "@/lib/kanban";
 
 type KanbanCardProps = {
   card: Card;
+  onUpdateCard: (cardId: string, patch: Partial<Card>) => void;
   onDelete: (cardId: string) => void;
 };
 
@@ -17,22 +26,17 @@ const STATUS_STYLES: Record<string, string> = {
   skipped: "bg-gray-100 text-gray-700",
 };
 
-const formatStatus = (status: string) =>
-  status
-    .split("-")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-
-const TAG_STYLES: Record<string, string> = {
-  Transport: "bg-sky-100 text-sky-700",
-  Food: "bg-orange-100 text-orange-700",
-  Activity: "bg-green-100 text-green-700",
-  Lodging: "bg-violet-100 text-violet-700",
-  Event: "bg-red-100 text-red-700",
-  "World Cup": "bg-red-100 text-red-700",
+const TYPE_STYLES: Record<string, string> = {
+  transport: "bg-sky-100 text-sky-700",
+  food: "bg-orange-100 text-orange-700",
+  activity: "bg-green-100 text-green-700",
+  lodging: "bg-violet-100 text-violet-700",
+  reservation: "bg-red-100 text-red-700",
+  reminder: "bg-slate-100 text-slate-700",
+  backup: "bg-amber-100 text-amber-700",
 };
 
-export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
+export const KanbanCard = ({ card, onUpdateCard, onDelete }: KanbanCardProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: card.id });
 
@@ -40,6 +44,8 @@ export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
     transform: CSS.Transform.toString(transform),
     transition,
   };
+  const cardType = normalizeCardType(card);
+  const cardStatus = normalizeCardStatus(card.status);
 
   return (
     <article
@@ -57,16 +63,12 @@ export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap gap-2">
-            {card.status && (
-              <span className={clsx("inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", STATUS_STYLES[card.status] ?? "bg-gray-100 text-gray-700")}>
-                {formatStatus(card.status)}
-              </span>
-            )}
-            {card.ai_tag && (
-              <span className={clsx("inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", TAG_STYLES[card.ai_tag] ?? "bg-slate-100 text-slate-700")}>
-                {card.ai_tag}
-              </span>
-            )}
+            <span className={clsx("inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", STATUS_STYLES[cardStatus])}>
+              {formatCardStatus(cardStatus)}
+            </span>
+            <span className={clsx("inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", TYPE_STYLES[cardType] ?? "bg-slate-100 text-slate-700")}>
+              {formatCardType(cardType)}
+            </span>
           </div>
           <h4 className="font-display text-base font-semibold text-[var(--navy-dark)]">
             {card.ai_title || card.title}
@@ -93,6 +95,44 @@ export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
           {card.suggested_by && (
             <p className="mt-2 text-xs text-[var(--gray-text)]">by {card.suggested_by}</p>
           )}
+          <label className="mt-3 block text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--gray-text)]">
+            Status
+            <select
+              value={cardStatus}
+              onChange={(event) => onUpdateCard(card.id, { status: event.target.value as TravelCardStatus })}
+              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+              className="mt-1 w-full rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 text-xs font-semibold normal-case tracking-normal text-[var(--navy-dark)] outline-none transition focus:border-[var(--primary-blue)]"
+              aria-label={`Status for ${card.title}`}
+            >
+              {TRAVEL_CARD_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {formatCardStatus(status)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="mt-2 block text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--gray-text)]">
+            Est. cost
+            <div className="mt-1 flex items-center rounded-xl border border-[var(--stroke)] bg-white px-3 py-1.5">
+              <span className="mr-1 text-xs text-[var(--gray-text)]">$</span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={card.estimated_cost ?? ""}
+                onChange={(event) => {
+                  const val = event.target.value === "" ? undefined : Number(event.target.value);
+                  onUpdateCard(card.id, { estimated_cost: val });
+                }}
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="w-full bg-transparent text-xs font-semibold text-[var(--navy-dark)] outline-none"
+                placeholder="0"
+                aria-label={`Estimated cost for ${card.title}`}
+              />
+            </div>
+          </label>
         </div>
         <button
           type="button"

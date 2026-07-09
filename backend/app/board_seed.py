@@ -245,6 +245,115 @@ _SEED_CARDS: dict = {
         "ai_tag": "Transport",
         "trip_date": "2026-07-03",
     },
+    # Day 2 additions
+    "card-d2-4": {
+        "id": "card-d2-4",
+        "title": "Breakfast in Whistler Village",
+        "details": "Start early at a village patio before the gondola. Lots of options near the base.",
+        "status": "booked",
+        "start_time": "08:00",
+        "location": "Whistler Village",
+        "ai_tag": "Food",
+        "trip_date": "2026-06-29",
+        "suggested_by": "Mom",
+    },
+    "card-d2-5": {
+        "id": "card-d2-5",
+        "title": "Drive from Capilano to Vancouver hotel",
+        "details": "Short drive from North Vancouver into the city for hotel check-in.",
+        "status": "booked",
+        "start_time": "20:00",
+        "location": "Vancouver",
+        "ai_tag": "Transport",
+        "trip_date": "2026-06-29",
+    },
+    # Day 3 additions
+    "card-d3-4": {
+        "id": "card-d3-4",
+        "title": "Lunch at Granville Island or nearby",
+        "details": "Pick a lunch spot near the market. Many good options inside or around the island.",
+        "status": "shortlisted",
+        "start_time": "12:30",
+        "location": "Granville Island",
+        "ai_tag": "Food",
+        "trip_date": "2026-06-30",
+        "suggested_by": "Mom",
+    },
+    "card-d3-5": {
+        "id": "card-d3-5",
+        "title": "Vancouver transit between stops",
+        "details": "Use SkyTrain and bus or rideshare to move between Granville Island, Stanley Park, and Gastown.",
+        "status": "booked",
+        "start_time": "10:00",
+        "location": "Vancouver",
+        "ai_tag": "Transport",
+        "trip_date": "2026-06-30",
+    },
+    # Day 4 additions
+    "card-d4-4": {
+        "id": "card-d4-4",
+        "title": "Canada Day breakfast near hotel",
+        "details": "Early start before the crowds. Find a local spot before Canada Place events get busy.",
+        "status": "idea",
+        "start_time": "09:00",
+        "location": "Vancouver",
+        "ai_tag": "Food",
+        "trip_date": "2026-07-01",
+    },
+    "card-d4-5": {
+        "id": "card-d4-5",
+        "title": "Canada Day fireworks at the waterfront",
+        "details": "Check official schedule for fireworks near Canada Place. Great family activity to end the day.",
+        "status": "researching",
+        "start_time": "22:00",
+        "location": "Vancouver waterfront",
+        "ai_tag": "Event",
+        "trip_date": "2026-07-01",
+        "suggested_by": "Trija",
+    },
+    "card-d4-6": {
+        "id": "card-d4-6",
+        "title": "Transit around downtown on Canada Day",
+        "details": "Check if free transit applies on Canada Day in Vancouver. Useful for getting to waterfront events.",
+        "status": "researching",
+        "start_time": "10:00",
+        "location": "Vancouver downtown",
+        "ai_tag": "Transport",
+        "trip_date": "2026-07-01",
+    },
+    # Day 5 additions
+    "card-d5-4": {
+        "id": "card-d5-4",
+        "title": "Morning coffee and breakfast",
+        "details": "Relaxed morning before the day activity. Try a local Vancouver cafe.",
+        "status": "idea",
+        "start_time": "09:00",
+        "location": "Vancouver",
+        "ai_tag": "Food",
+        "trip_date": "2026-07-02",
+    },
+    "card-d5-5": {
+        "id": "card-d5-5",
+        "title": "Drive to Richmond Night Market",
+        "details": "About 30 minutes from downtown Vancouver. Leave early to avoid parking and crowds.",
+        "status": "shortlisted",
+        "start_time": "17:00",
+        "location": "Richmond",
+        "ai_tag": "Transport",
+        "trip_date": "2026-07-02",
+    },
+    # Day 6 additions
+    "card-d6-4": {
+        "id": "card-d6-4",
+        "title": "Final Vancouver breakfast before leaving",
+        "details": "Last meal in the city. Try a local spot before the long drive home.",
+        "status": "shortlisted",
+        "start_time": "09:30",
+        "location": "Vancouver",
+        "ai_tag": "Food",
+        "trip_date": "2026-07-03",
+        "suggested_by": "Mom",
+    },
 }
 
 
@@ -275,8 +384,28 @@ def make_default_board(start_date: str, end_date: str) -> dict:
     col_index = {col["id"]: idx for idx, col in enumerate(columns)}
 
     for card_id, card in _SEED_CARDS.items():
+        card.setdefault("type", _infer_card_type(card))
         trip_date = card.get("trip_date")
         col_id = date_to_col.get(trip_date, default_col_id) if trip_date else default_col_id
         columns[col_index[col_id]]["cardIds"].append(card_id)
 
     return {"columns": columns, "cards": _SEED_CARDS}
+
+
+def _infer_card_type(card: dict) -> str:
+    tag = card.get("ai_tag")
+    if tag == "Lodging":
+        return "lodging"
+    if tag == "Transport":
+        return "transport"
+    if tag == "Food":
+        return "food"
+    if tag in {"Activity", "World Cup"}:
+        return "activity"
+    if tag == "Event":
+        return "reservation"
+
+    text = f"{card.get('title', '')} {card.get('details', '')}".lower()
+    if "souvenir" in text or "activity" in text or "restaurant" in text:
+        return "activity"
+    return "reminder"

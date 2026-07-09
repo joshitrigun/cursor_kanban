@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,8 +36,40 @@ SEED_TRIP = {
     "end_date": "2026-07-03",
 }
 
+TRAVEL_CARD_TYPES = {
+    "lodging",
+    "transport",
+    "activity",
+    "food",
+    "reservation",
+    "reminder",
+    "backup",
+}
+
+TRAVEL_CARD_STATUSES = {
+    "idea",
+    "researching",
+    "shortlisted",
+    "booked",
+    "confirmed",
+    "skipped",
+}
+
+AI_TAG_TO_CARD_TYPE = {
+    "Lodging": "lodging",
+    "Transport": "transport",
+    "Activity": "activity",
+    "Food": "food",
+    "Event": "reservation",
+    "World Cup": "activity",
+}
+
 
 class BoardNotFoundError(LookupError):
+    pass
+
+
+class BoardVersionConflictError(ValueError):
     pass
 
 
@@ -312,8 +345,15 @@ def get_user_for_auth(connection: Connection, username: str) -> Row | None:
 
 def get_board_for_username(connection: Connection, username: str) -> dict[str, object]:
     board_row = get_board_row_for_username(connection, username)
+    board, changed = sanitize_board_document(json.loads(board_row["board_json"]))
+    if changed:
+        connection.execute(
+            "UPDATE boards SET board_json = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(board), utc_now(), board_row["id"]),
+        )
+        connection.commit()
     return {
-        "board": json.loads(board_row["board_json"]),
+        "board": board,
         "boardVersion": board_row["board_version"],
         "schemaVersion": board_row["schema_version"],
     }
@@ -323,8 +363,14 @@ def update_board_for_username(
     connection: Connection,
     username: str,
     board: dict[str, object],
+    expected_board_version: int,
 ) -> dict[str, object]:
     existing_row = get_board_row_for_username(connection, username)
+    if existing_row["board_version"] != expected_board_version:
+        raise BoardVersionConflictError(
+            f"Board version conflict. Expected {expected_board_version}, found {existing_row['board_version']}."
+        )
+    sanitized_board, _changed = sanitize_board_document(board)
     next_board_version = existing_row["board_version"] + 1
     now = utc_now()
 
@@ -332,26 +378,96 @@ def update_board_for_username(
         """UPDATE boards
            SET board_json = ?, board_version = ?, schema_version = ?, updated_at = ?
            WHERE id = ?""",
-        (json.dumps(board), next_board_version, SCHEMA_VERSION, now, existing_row["id"]),
+        (json.dumps(sanitized_board), next_board_version, SCHEMA_VERSION, now, existing_row["id"]),
     )
     connection.commit()
 
     return {
-        "board": board,
+        "board": sanitized_board,
         "boardVersion": next_board_version,
         "schemaVersion": SCHEMA_VERSION,
     }
 
 
+def sanitize_board_document(board: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    cards = board.get("cards") if isinstance(board.get("cards"), dict) else {}
+    columns = board.get("columns") if isinstance(board.get("columns"), list) else []
+
+    changed = False
+    sanitized_cards: dict[str, Any] = {}
+    for card_id, raw_card in cards.items():
+        if not isinstance(card_id, str) or not isinstance(raw_card, dict):
+            changed = True
+            continue
+        sanitized_card = dict(raw_card)
+        normalized_type = normalize_card_type(sanitized_card)
+        if sanitized_card.get("type") != normalized_type:
+            sanitized_card["type"] = normalized_type
+            changed = True
+        normalized_status = normalize_card_status(sanitized_card.get("status"))
+        if sanitized_card.get("status") != normalized_status:
+            sanitized_card["status"] = normalized_status
+            changed = True
+        sanitized_cards[card_id] = sanitized_card
+
+    sanitized_columns: list[dict[str, Any]] = []
+    for raw_column in columns:
+        if not isinstance(raw_column, dict):
+            changed = True
+            continue
+
+        raw_card_ids = raw_column.get("cardIds")
+        card_ids = raw_card_ids if isinstance(raw_card_ids, list) else []
+        filtered_card_ids = [
+            card_id for card_id in card_ids if isinstance(card_id, str) and card_id in sanitized_cards
+        ]
+        if filtered_card_ids != card_ids:
+            changed = True
+
+        sanitized_column = dict(raw_column)
+        sanitized_column["cardIds"] = filtered_card_ids
+        sanitized_columns.append(sanitized_column)
+
+    sanitized_board = dict(board)
+    sanitized_board["cards"] = sanitized_cards
+    sanitized_board["columns"] = sanitized_columns
+
+    return sanitized_board, changed
+
+
+def normalize_card_type(card: dict[str, Any]) -> str:
+    raw_type = card.get("type")
+    if isinstance(raw_type, str) and raw_type.lower() in TRAVEL_CARD_TYPES:
+        return raw_type.lower()
+
+    raw_tag = card.get("ai_tag")
+    if isinstance(raw_tag, str) and raw_tag in AI_TAG_TO_CARD_TYPE:
+        return AI_TAG_TO_CARD_TYPE[raw_tag]
+
+    text = f"{card.get('title', '')} {card.get('details', '')}".lower()
+    if re.search(r"hotel|airbnb|lodging|accommodation|check-in|checkout|room", text):
+        return "lodging"
+    if re.search(r"drive|transfer|flight|airport|ferry|train|car|bus|gondola", text):
+        return "transport"
+    if re.search(r"breakfast|brunch|lunch|dinner|meal|restaurant|coffee|cafe", text):
+        return "food"
+    if re.search(r"book|ticket|reservation|confirm|confirmation", text):
+        return "reservation"
+    if re.search(r"pack|passport|document|reminder|check", text):
+        return "reminder"
+    if re.search(r"backup|rainy|alternative", text):
+        return "backup"
+    return "activity"
+
+
+def normalize_card_status(status: Any) -> str:
+    if isinstance(status, str) and status.lower() in TRAVEL_CARD_STATUSES:
+        return status.lower()
+    return "idea"
+
+
 def get_board_row_for_username(connection: Connection, username: str) -> Row:
-    # All family members share the board owned by FAMILY_BOARD_OWNER.
-    owner_row = connection.execute(
-        "SELECT id FROM users WHERE username = ?", (FAMILY_BOARD_OWNER,)
-    ).fetchone()
-    if owner_row is None:
-        owner_row = connection.execute(
-            "SELECT id FROM users WHERE username = ?", (username,)
-        ).fetchone()
+    owner_row = get_shared_trip_owner_row(connection, username)
     if owner_row is None:
         raise BoardNotFoundError(f"User '{username}' not found.")
 
@@ -362,6 +478,19 @@ def get_board_row_for_username(connection: Connection, username: str) -> Row:
     if board_row is None:
         raise BoardNotFoundError("Shared family board not found.")
     return board_row
+
+
+def get_shared_trip_owner_row(connection: Connection, username: str) -> Row | None:
+    # All family members share the board and trip owned by FAMILY_BOARD_OWNER.
+    owner_row = connection.execute(
+        "SELECT id FROM users WHERE username = ?", (FAMILY_BOARD_OWNER,)
+    ).fetchone()
+    if owner_row is not None:
+        return owner_row
+
+    return connection.execute(
+        "SELECT id FROM users WHERE username = ?", (username,)
+    ).fetchone()
 
 
 def get_chat_history_for_username(
@@ -425,9 +554,7 @@ def append_chat_exchange_for_username(
 
 
 def get_trip_for_user(connection: Connection, username: str) -> dict[str, Any] | None:
-    user_row = connection.execute(
-        "SELECT id FROM users WHERE username = ?", (FAMILY_BOARD_OWNER,)
-    ).fetchone()
+    user_row = get_shared_trip_owner_row(connection, username)
     if user_row is None:
         return None
 
@@ -454,9 +581,7 @@ def upsert_trip_for_user(
     start_date: str | None,
     end_date: str | None,
 ) -> dict[str, Any]:
-    user_row = connection.execute(
-        "SELECT id FROM users WHERE username = ?", (username,)
-    ).fetchone()
+    user_row = get_shared_trip_owner_row(connection, username)
     if user_row is None:
         raise BoardNotFoundError(f"User '{username}' not found.")
 

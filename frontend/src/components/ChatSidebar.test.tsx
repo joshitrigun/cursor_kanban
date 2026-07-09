@@ -40,6 +40,102 @@ describe("ChatSidebar", () => {
     expect(screen.getByText("Hi there!")).toBeInTheDocument();
   });
 
+  it("shows a proposal panel with apply and reject buttons when a diff is provided", () => {
+    render(
+      <ChatSidebar
+        messages={[]}
+        onSendMessage={vi.fn()}
+        isLoading={false}
+        errorMessage={null}
+        isOpen={true}
+        onClose={vi.fn()}
+        pendingProposalDiff={{ added: ["New Hotel"], updated: [], moved: ["Gondola"] }}
+        onApplyProposal={vi.fn()}
+        onRejectProposal={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("proposal-panel")).toBeInTheDocument();
+    expect(screen.getByText("Proposed Changes")).toBeInTheDocument();
+    expect(screen.getByText("1 card added")).toBeInTheDocument();
+    expect(screen.getByText("1 card moved")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apply" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+  });
+
+  it("calls onApplyProposal when Apply is clicked", async () => {
+    const onApply = vi.fn();
+    render(
+      <ChatSidebar
+        messages={[]}
+        onSendMessage={vi.fn()}
+        isLoading={false}
+        errorMessage={null}
+        isOpen={true}
+        onClose={vi.fn()}
+        pendingProposalDiff={{ added: ["New Card"], updated: [], moved: [] }}
+        onApplyProposal={onApply}
+        onRejectProposal={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onApply).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onRejectProposal when Reject is clicked", async () => {
+    const onReject = vi.fn();
+    render(
+      <ChatSidebar
+        messages={[]}
+        onSendMessage={vi.fn()}
+        isLoading={false}
+        errorMessage={null}
+        isOpen={true}
+        onClose={vi.fn()}
+        pendingProposalDiff={{ added: [], updated: ["Hotel"], moved: [] }}
+        onApplyProposal={vi.fn()}
+        onRejectProposal={onReject}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Reject" }));
+    expect(onReject).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a planning analysis badge for summary-only assistant messages", () => {
+    render(
+      <ChatSidebar
+        messages={[
+          { role: "assistant", content: "Day 3 is overloaded with 7 items.", summaryOnly: true },
+        ]}
+        onSendMessage={vi.fn()}
+        isLoading={false}
+        errorMessage={null}
+        isOpen={true}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Planning analysis")).toBeInTheDocument();
+    expect(screen.getByText("Day 3 is overloaded with 7 items.")).toBeInTheDocument();
+  });
+
+  it("does not show a planning analysis badge for regular assistant messages", () => {
+    render(
+      <ChatSidebar
+        messages={[{ role: "assistant", content: "Card moved.", summaryOnly: false }]}
+        onSendMessage={vi.fn()}
+        isLoading={false}
+        errorMessage={null}
+        isOpen={true}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText("Planning analysis")).not.toBeInTheDocument();
+  });
+
   it("calls onSendMessage with the typed message on submit", async () => {
     const onSendMessage = vi.fn().mockResolvedValue(undefined);
 

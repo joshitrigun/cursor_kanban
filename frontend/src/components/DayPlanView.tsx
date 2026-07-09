@@ -1,19 +1,22 @@
-import type { Card, Column } from "@/lib/kanban";
+import { formatCardStatus, formatCardType, getVoteSummary, normalizeCardStatus, normalizeCardType, type Card, type Column } from "@/lib/kanban";
 
 type DayPlanViewProps = {
   column: Column;
   cards: Card[];
   onLock: (columnId: string) => void;
   onUnlock: (columnId: string) => void;
+  onUpdateCard?: (cardId: string, patch: Partial<Card>) => void;
+  username?: string;
 };
 
-const TAG_COLORS: Record<string, string> = {
-  Transport: "bg-blue-100 text-blue-700",
-  Food: "bg-orange-100 text-orange-700",
-  Activity: "bg-green-100 text-green-700",
-  Lodging: "bg-purple-100 text-purple-700",
-  Event: "bg-red-100 text-red-700",
-  "World Cup": "bg-red-100 text-red-700",
+const TYPE_COLORS: Record<string, string> = {
+  transport: "bg-blue-100 text-blue-700",
+  food: "bg-orange-100 text-orange-700",
+  activity: "bg-green-100 text-green-700",
+  lodging: "bg-purple-100 text-purple-700",
+  reservation: "bg-red-100 text-red-700",
+  reminder: "bg-slate-100 text-slate-700",
+  backup: "bg-amber-100 text-amber-700",
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -27,12 +30,6 @@ const STATUS_COLORS: Record<string, string> = {
 
 const displayColumnTitle = (column: Column) =>
   column.id === "col-unscheduled" && column.title === "Unscheduled" ? "Ideas Inbox" : column.title;
-
-const formatStatus = (status: string) =>
-  status
-    .split("-")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 
 const sortCardsByTime = (cards: Card[]) =>
   [...cards].sort((a, b) => (a.start_time ?? "99:99").localeCompare(b.start_time ?? "99:99"));
@@ -66,20 +63,25 @@ const getSectionLabel = (card: Card) => {
 };
 
 const isMealCard = (card: Card) =>
-  card.ai_tag === "Food" || /breakfast|brunch|lunch|dinner|meal|restaurant/i.test(`${card.title} ${card.details}`);
+  normalizeCardType(card) === "food" || /breakfast|brunch|lunch|dinner|meal|restaurant/i.test(`${card.title} ${card.details}`);
 
 const isTravelCard = (card: Card) =>
-  card.ai_tag === "Transport" || /drive|travel|transfer|flight|airport|ferry|gondola|check-in|checkout/i.test(`${card.title} ${card.details}`);
+  normalizeCardType(card) === "transport" || /drive|travel|transfer|flight|airport|ferry|gondola|check-in|checkout/i.test(`${card.title} ${card.details}`);
 
-export const DayPlanView = ({ column, cards, onLock, onUnlock }: DayPlanViewProps) => {
+export const DayPlanView = ({ column, cards, onLock, onUnlock, onUpdateCard, username }: DayPlanViewProps) => {
   const locked = column.locked ?? false;
   const isDayColumn = column.id.startsWith("col-day-");
   const sortedCards = sortCardsByTime(cards);
-  const bookedCount = sortedCards.filter((card) => card.status === "booked").length;
-  const researchingCount = sortedCards.filter((card) => card.status === "researching").length;
+  const bookedCount = sortedCards.filter((card) => normalizeCardStatus(card.status) === "booked").length;
+  const researchingCount = sortedCards.filter((card) => normalizeCardStatus(card.status) === "researching").length;
+  const dayCost = sortedCards.reduce((sum, c) => sum + (c.estimated_cost ?? 0), 0);
   const foodCount = sortedCards.filter(isMealCard).length;
   const travelCount = sortedCards.filter(isTravelCard).length;
   const isPackedDay = sortedCards.length >= 5;
+  const hasMixedCities =
+    isDayColumn &&
+    sortedCards.some((c) => /whistler/i.test(c.location ?? "")) &&
+    sortedCards.some((c) => /vancouver|north.?van/i.test(c.location ?? ""));
   const cardsBySection = DAY_SECTIONS.map((section) => ({
     ...section,
     cards: sortedCards.filter((card) => getSectionLabel(card) === section.label),
@@ -104,6 +106,16 @@ export const DayPlanView = ({ column, cards, onLock, onUnlock }: DayPlanViewProp
             <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">
               {researchingCount} researching
             </span>
+            {isDayColumn && dayCost > 0 && (
+              <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-700">
+                Est. ${dayCost.toLocaleString()}
+              </span>
+            )}
+            {hasMixedCities && (
+              <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-orange-700">
+                Multi-city day
+              </span>
+            )}
             {isDayColumn && foodCount === 0 && sortedCards.length > 0 ? (
               <span className="rounded-full bg-yellow-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-yellow-800">
                 No meal yet
@@ -159,6 +171,135 @@ export const DayPlanView = ({ column, cards, onLock, onUnlock }: DayPlanViewProp
               : "Paste links or quick thoughts into Quick-Add, then drag the strongest ideas into a day when the plan starts taking shape."}
           </p>
         </div>
+      ) : column.id === "col-unscheduled" ? (
+        <div className="flex flex-col gap-4" data-testid="ideas-inbox-queue">
+          {([
+            { type: "activity", label: "Activities" },
+            { type: "food", label: "Food" },
+            { type: "lodging", label: "Lodging" },
+            { type: "transport", label: "Transport" },
+            { type: "reservation", label: "Reservations" },
+            { type: "reminder", label: "Reminders" },
+            { type: "backup", label: "Backup Options" },
+          ] as const).map(({ type, label }) => {
+            const groupCards = sortedCards.filter(
+              (c) => normalizeCardType(c) === type && normalizeCardStatus(c.status) !== "skipped",
+            );
+            if (groupCards.length === 0) return null;
+            return (
+              <section key={type}>
+                <div className="mb-3 flex items-center gap-2">
+                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${TYPE_COLORS[type] ?? "bg-gray-100 text-gray-600"}`}>
+                    {label}
+                  </span>
+                  <span className="text-xs text-[var(--gray-text)]">{groupCards.length}</span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {groupCards.map((card) => {
+                    const cardStatus = normalizeCardStatus(card.status);
+                    const statusColor = STATUS_COLORS[cardStatus];
+                    const isConfirmed = cardStatus === "shortlisted" || cardStatus === "booked" || cardStatus === "confirmed";
+                    return (
+                      <div
+                        key={card.id}
+                        className={`rounded-2xl border p-4 transition ${
+                          isConfirmed ? "border-green-200 bg-green-50/60" : "border-[var(--stroke)] bg-white"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusColor}`}>
+                                {formatCardStatus(cardStatus)}
+                              </span>
+                              {card.suggested_by && (
+                                <span className="text-[10px] text-[var(--gray-text)]">by {card.suggested_by}</span>
+                              )}
+                            </div>
+                            <p className="text-sm font-semibold text-[var(--navy-dark)]">{card.ai_title || card.title}</p>
+                            <p className="mt-1 text-xs leading-5 text-[var(--gray-text)]">{card.ai_summary || card.details}</p>
+                            {(() => {
+                              const vs = getVoteSummary(card);
+                              if (vs.total === 0) return null;
+                              return (
+                                <p className="mt-1.5 flex gap-3 text-[10px] font-semibold">
+                                  {vs.mustDo > 0 && <span className="text-green-700">{vs.mustDo} must-do</span>}
+                                  {vs.niceToHave > 0 && <span className="text-[var(--primary-blue)]">{vs.niceToHave} nice</span>}
+                                  {vs.skip > 0 && <span className="text-[var(--gray-text)]">{vs.skip} skip</span>}
+                                </p>
+                              );
+                            })()}
+                          </div>
+                          <div className="flex flex-shrink-0 flex-col gap-1.5">
+                            {username && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const current = card.votes?.[username];
+                                  onUpdateCard?.(card.id, {
+                                    votes: { ...card.votes, [username]: current === "must-do" ? "nice-to-have" : "must-do" },
+                                  });
+                                }}
+                                className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+                                  card.votes?.[username] === "must-do"
+                                    ? "bg-green-100 text-green-800"
+                                    : "border border-[var(--stroke)] text-[var(--gray-text)] hover:border-green-300 hover:text-green-700"
+                                }`}
+                              >
+                                Must-do
+                              </button>
+                            )}
+                            {!isConfirmed && (
+                              <button
+                                type="button"
+                                onClick={() => onUpdateCard?.(card.id, { status: "shortlisted" })}
+                                className="rounded-full bg-green-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-green-700 transition hover:bg-green-100"
+                              >
+                                Shortlist
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => onUpdateCard?.(card.id, { status: "skipped" })}
+                              className="rounded-full border border-[var(--stroke)] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--gray-text)] transition hover:border-[var(--navy-dark)]"
+                            >
+                              Skip
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+          {(() => {
+            const skipped = sortedCards.filter((c) => normalizeCardStatus(c.status) === "skipped");
+            if (skipped.length === 0) return null;
+            return (
+              <section>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--gray-text)]">
+                  Skipped ({skipped.length})
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {skipped.map((card) => (
+                    <div key={card.id} className="flex items-center justify-between rounded-2xl border border-[var(--stroke)] bg-white/60 px-4 py-2.5 opacity-60">
+                      <p className="text-sm text-[var(--gray-text)] line-through">{card.ai_title || card.title}</p>
+                      <button
+                        type="button"
+                        onClick={() => onUpdateCard?.(card.id, { status: "idea" })}
+                        className="ml-3 flex-shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--primary-blue)] hover:underline"
+                      >
+                        Restore
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            );
+          })()}
+        </div>
       ) : (
         <div className="flex flex-col gap-5">
           {isDayColumn && (
@@ -201,8 +342,10 @@ export const DayPlanView = ({ column, cards, onLock, onUnlock }: DayPlanViewProp
               ) : (
                 <ol className="relative flex flex-col gap-4 before:absolute before:left-5 before:top-4 before:h-[calc(100%-2rem)] before:w-px before:bg-[var(--stroke)] sm:before:left-24">
                   {section.cards.map((card, index) => {
-                    const tagColor = card.ai_tag ? (TAG_COLORS[card.ai_tag] ?? "bg-gray-100 text-gray-600") : null;
-                    const statusColor = card.status ? (STATUS_COLORS[card.status] ?? "bg-gray-100 text-gray-700") : null;
+                    const cardType = normalizeCardType(card);
+                    const typeColor = TYPE_COLORS[cardType] ?? "bg-gray-100 text-gray-600";
+                    const cardStatus = normalizeCardStatus(card.status);
+                    const statusColor = STATUS_COLORS[cardStatus];
                     const timeLabel = card.start_time && card.end_time
                       ? `${card.start_time}-${card.end_time}`
                       : card.start_time ?? "Any time";
@@ -224,16 +367,20 @@ export const DayPlanView = ({ column, cards, onLock, onUnlock }: DayPlanViewProp
                             <h3 className="font-display text-base font-semibold text-[var(--navy-dark)]">
                               {card.ai_title || card.title}
                             </h3>
-                            {card.status && statusColor && (
-                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusColor}`}>
-                                {formatStatus(card.status)}
-                              </span>
-                            )}
-                            {card.ai_tag && tagColor && (
-                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tagColor}`}>
-                                {card.ai_tag}
-                              </span>
-                            )}
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusColor}`}>
+                              {formatCardStatus(cardStatus)}
+                            </span>
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${typeColor}`}>
+                              {formatCardType(cardType)}
+                            </span>
+                            {(() => {
+                              const vs = getVoteSummary(card);
+                              return vs.mustDo > 0 ? (
+                                <span className="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-700">
+                                  {vs.mustDo} must-do
+                                </span>
+                              ) : null;
+                            })()}
                           </div>
                           {(card.start_time || card.end_time || card.location) && (
                             <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--gray-text)]">

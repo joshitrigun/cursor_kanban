@@ -1,10 +1,12 @@
 "use client";
 
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import type { BoardDiff } from "@/lib/kanban";
 
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
+  summaryOnly?: boolean;
 };
 
 type ChatSidebarProps = {
@@ -14,6 +16,9 @@ type ChatSidebarProps = {
   errorMessage: string | null;
   isOpen: boolean;
   onClose: () => void;
+  pendingProposalDiff?: BoardDiff | null;
+  onApplyProposal?: () => void | Promise<void>;
+  onRejectProposal?: () => void;
 };
 
 export const ChatSidebar = ({
@@ -23,6 +28,9 @@ export const ChatSidebar = ({
   errorMessage,
   isOpen,
   onClose,
+  pendingProposalDiff,
+  onApplyProposal,
+  onRejectProposal,
 }: ChatSidebarProps) => {
   const [draft, setDraft] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -96,7 +104,7 @@ export const ChatSidebar = ({
         <div className="flex-1 space-y-3 overflow-y-auto p-4">
           {messages.length === 0 && !isLoading && (
             <p className="py-6 text-center text-xs text-[var(--gray-text)]">
-              Ask the assistant to create, move, or rename cards and columns.
+              Ask the assistant to create, move, or rename cards, or ask "What's missing from this trip?"
             </p>
           )}
           {messages.map((msg, i) => (
@@ -111,6 +119,11 @@ export const ChatSidebar = ({
                     : "border border-[var(--stroke)] bg-[var(--surface)] text-[var(--navy-dark)]"
                 }`}
               >
+                {msg.role === "assistant" && msg.summaryOnly && (
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--primary-blue)]">
+                    Planning analysis
+                  </p>
+                )}
                 {msg.content}
               </div>
             </div>
@@ -126,6 +139,43 @@ export const ChatSidebar = ({
             <p className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
               {errorMessage}
             </p>
+          )}
+          {pendingProposalDiff && (
+            <div className="rounded-2xl border border-[var(--primary-blue)] bg-blue-50 p-3" data-testid="proposal-panel">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--primary-blue)]">
+                Proposed Changes
+              </p>
+              <ul className="mt-2 space-y-1 text-xs font-semibold text-[var(--navy-dark)]">
+                {pendingProposalDiff.added.length > 0 && (
+                  <li>{pendingProposalDiff.added.length} card{pendingProposalDiff.added.length > 1 ? "s" : ""} added</li>
+                )}
+                {pendingProposalDiff.updated.length > 0 && (
+                  <li>{pendingProposalDiff.updated.length} card{pendingProposalDiff.updated.length > 1 ? "s" : ""} updated</li>
+                )}
+                {pendingProposalDiff.moved.length > 0 && (
+                  <li>{pendingProposalDiff.moved.length} card{pendingProposalDiff.moved.length > 1 ? "s" : ""} moved</li>
+                )}
+                {pendingProposalDiff.added.length === 0 && pendingProposalDiff.updated.length === 0 && pendingProposalDiff.moved.length === 0 && (
+                  <li>Minor board changes</li>
+                )}
+              </ul>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void onApplyProposal?.()}
+                  className="flex-1 rounded-full bg-[var(--secondary-purple)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:opacity-90"
+                >
+                  Apply
+                </button>
+                <button
+                  type="button"
+                  onClick={onRejectProposal}
+                  className="flex-1 rounded-full border border-[var(--stroke)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--navy-dark)] transition hover:border-[var(--navy-dark)]"
+                >
+                  Reject
+                </button>
+              </div>
+            </div>
           )}
           <div ref={messagesEndRef} />
         </div>

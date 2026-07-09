@@ -10,6 +10,7 @@ class CardPayload(BaseModel):
     id: str
     title: str
     details: str
+    type: str | None = None
     status: str | None = None
     start_time: str | None = None
     end_time: str | None = None
@@ -22,6 +23,8 @@ class CardPayload(BaseModel):
     suggested_by: str | None = None
     trip_date: str | None = None
     deadline: str | None = None
+    estimated_cost: float | None = None
+    votes: dict[str, str] | None = None
 
 
 class ColumnPayload(BaseModel):
@@ -38,6 +41,7 @@ class BoardPayload(BaseModel):
 
 class BoardEnvelope(BaseModel):
     board: BoardPayload
+    expectedBoardVersion: int = Field(ge=1)
 
 
 class AIChatPayload(BaseModel):
@@ -51,6 +55,7 @@ class ChatMessagePayload(BaseModel):
 
 class StructuredAssistantResponse(BaseModel):
     assistantMessage: str = Field(min_length=1)
+    summaryOnly: bool = False
     board: BoardPayload | None = None
 
 

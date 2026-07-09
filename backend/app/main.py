@@ -88,7 +88,7 @@ def create_app(db_path: Optional[Union[str, Path]] = None) -> FastAPI:
               <head>
                 <meta charset=\"utf-8\" />
                 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-                <title>Project Management MVP</title>
+                <title>Kanban Studio</title>
                 <style>
                   body {
                     margin: 0;

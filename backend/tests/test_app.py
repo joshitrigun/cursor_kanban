@@ -1,9 +1,11 @@
 ﻿import json
 from pathlib import Path
 
+import httpx
 import sqlite3
 import pytest
 from fastapi.testclient import TestClient
+import app.api as api_module
 import app.db as db_module
 
 from app.db import get_chat_history_for_username
@@ -17,11 +19,16 @@ def db_path(tmp_path: Path) -> Path:
     return tmp_path / "test.db"
 
 
+FRONTEND_OUT = Path(__file__).resolve().parents[2] / "frontend" / "out"
+
+
 def test_root_returns_placeholder_html(client: TestClient) -> None:
     response = client.get("/")
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
+    # When the static build is absent the placeholder is served; when present
+    # the Next.js index.html is served.  Both must contain Kanban Studio.
     assert "Kanban Studio" in response.text
     assert "<html" in response.text
 
@@ -39,6 +46,10 @@ def test_health_route_returns_ok_payload(client: TestClient) -> None:
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
 
 
+@pytest.mark.skipif(
+    not (Path(__file__).resolve().parents[2] / "frontend" / "out").exists(),
+    reason="requires frontend static build (run npm run build in frontend/)",
+)
 def test_static_asset_is_served(client: TestClient) -> None:
     response = client.get("/favicon.ico")
 
@@ -184,11 +195,13 @@ def test_authenticated_user_gets_seeded_board(client: TestClient) -> None:
     assert len(payload["board"]["columns"]) == 7
     assert payload["board"]["columns"][0]["id"] == "col-unscheduled"
     assert payload["board"]["cards"]["card-d1-1"]["title"] == "Depart home -- 9:00 AM"
+    assert payload["board"]["cards"]["card-d1-1"]["type"] == "transport"
 
 
 def test_board_update_persists_and_increments_version(client: TestClient) -> None:
     client.post("/api/login", json={"username": "dad", "password": "family2026"})
-    initial_board = client.get("/api/board").json()["board"]
+    initial_payload = client.get("/api/board").json()
+    initial_board = initial_payload["board"]
     updated_board = {
         **initial_board,
         "columns": [
@@ -202,7 +215,7 @@ def test_board_update_persists_and_increments_version(client: TestClient) -> Non
 
     update_response = client.put(
         "/api/board",
-        json={"board": updated_board},
+        json={"board": updated_board, "expectedBoardVersion": initial_payload["boardVersion"]},
         headers={"Origin": "http://testserver"},
     )
 
@@ -218,7 +231,8 @@ def test_board_update_persists_and_increments_version(client: TestClient) -> Non
 def test_board_persists_across_app_restarts(db_path: Path) -> None:
     with TestClient(create_app(db_path)) as first_client:
         first_client.post("/api/login", json={"username": "dad", "password": "family2026"})
-        board = first_client.get("/api/board").json()["board"]
+        board_payload = first_client.get("/api/board").json()
+        board = board_payload["board"]
         updated_board = {
             **board,
             "columns": [
@@ -231,7 +245,7 @@ def test_board_persists_across_app_restarts(db_path: Path) -> None:
         }
         first_client.put(
             "/api/board",
-            json={"board": updated_board},
+            json={"board": updated_board, "expectedBoardVersion": board_payload["boardVersion"]},
             headers={"Origin": "http://testserver"},
         )
 
@@ -356,7 +370,8 @@ def test_ai_chat_returns_message_without_mutating_board(client: TestClient) -> N
     assert response.status_code == 200
     assert response.json() == {
         "assistantMessage": "Board is in good shape.",
-        "boardUpdated": False,
+        "summaryOnly": False,
+        "proposedBoard": None,
         "board": before["board"],
         "boardVersion": before["boardVersion"],
         "schemaVersion": before["schemaVersion"],
@@ -368,7 +383,7 @@ def test_ai_chat_returns_message_without_mutating_board(client: TestClient) -> N
     ]
 
 
-def test_ai_chat_applies_validated_board_update(client: TestClient) -> None:
+def test_ai_chat_returns_proposed_board_without_applying(client: TestClient) -> None:
     class StubOpenRouterClient:
         async def chat(self, user_message: str, system_prompt: str | None = None) -> str:
             return (
@@ -397,6 +412,7 @@ def test_ai_chat_applies_validated_board_update(client: TestClient) -> None:
 
     client.app.state.openrouter_client = StubOpenRouterClient()
     client.post("/api/login", json={"username": "dad", "password": "family2026"})
+    before = client.get("/api/board").json()
 
     response = client.post(
         "/api/ai/chat",
@@ -407,11 +423,12 @@ def test_ai_chat_applies_validated_board_update(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.json()["assistantMessage"] == "Renamed the first column."
-    assert response.json()["boardUpdated"] is True
-    assert response.json()["boardVersion"] == 2
-    assert response.json()["board"]["columns"][0]["title"] == "Ready"
-    assert persisted["boardVersion"] == 2
-    assert persisted["board"]["columns"][0]["title"] == "Ready"
+    assert response.json()["proposedBoard"] is not None
+    assert response.json()["proposedBoard"]["columns"][0]["title"] == "Ready"
+    # Current board is unchanged on the server
+    assert response.json()["boardVersion"] == before["boardVersion"]
+    assert persisted["boardVersion"] == before["boardVersion"]
+    assert persisted["board"]["columns"][0]["title"] == before["board"]["columns"][0]["title"]
 
     history = get_chat_history_for_username(client.app.state.db, "dad")
     assert history[-1]["boardMutation"]["columns"][0]["title"] == "Ready"
@@ -448,9 +465,10 @@ def test_ai_chat_normalizes_time_from_created_card_text(client: TestClient) -> N
     persisted = client.get("/api/board").json()
 
     assert response.status_code == 200
-    assert response.json()["boardUpdated"] is True
-    assert response.json()["board"]["cards"]["card-ai-lunch"]["start_time"] == "13:00"
-    assert persisted["board"]["cards"]["card-ai-lunch"]["start_time"] == "13:00"
+    assert response.json()["proposedBoard"] is not None
+    assert response.json()["proposedBoard"]["cards"]["card-ai-lunch"]["start_time"] == "13:00"
+    # Board not applied — persisted board does not contain the new card
+    assert "card-ai-lunch" not in persisted["board"]["cards"]
 
 
 def test_ai_chat_accepts_localhost_frontend_origin_in_development(client: TestClient) -> None:
@@ -584,8 +602,14 @@ def test_production_rejects_state_change_without_origin_header(
             json={"username": "dad", "password": "family2026"},
         )
         client.cookies.set("pm_session", login_response.cookies.get("pm_session"))
-        board = client.get("/api/board").json()["board"]
-        response = client.put("/api/board", json={"board": board})
+        board_payload = client.get("/api/board").json()
+        response = client.put(
+            "/api/board",
+            json={
+                "board": board_payload["board"],
+                "expectedBoardVersion": board_payload["boardVersion"],
+            },
+        )
 
     assert response.status_code == 403
     assert response.json() == {"detail": "Origin or Referer header required."}
@@ -603,10 +627,13 @@ def test_production_accepts_same_origin_state_change(
             json={"username": "dad", "password": "family2026"},
         )
         client.cookies.set("pm_session", login_response.cookies.get("pm_session"))
-        board = client.get("/api/board").json()["board"]
+        board_payload = client.get("/api/board").json()
         response = client.put(
             "/api/board",
-            json={"board": board},
+            json={
+                "board": board_payload["board"],
+                "expectedBoardVersion": board_payload["boardVersion"],
+            },
             headers={"Origin": "http://testserver"},
         )
 
@@ -634,7 +661,8 @@ def test_family_member_board_change_visible_to_sibling(db_path: Path) -> None:
     """A change made by one family member must be immediately visible to another."""
     with TestClient(create_app(db_path)) as client:
         client.post("/api/login", json={"username": "dad", "password": "family2026"})
-        board = client.get("/api/board").json()["board"]
+        board_payload = client.get("/api/board").json()
+        board = board_payload["board"]
         updated = {
             **board,
             "columns": [
@@ -642,7 +670,11 @@ def test_family_member_board_change_visible_to_sibling(db_path: Path) -> None:
                 *board["columns"][1:],
             ],
         }
-        client.put("/api/board", json={"board": updated}, headers={"Origin": "http://testserver"})
+        client.put(
+            "/api/board",
+            json={"board": updated, "expectedBoardVersion": board_payload["boardVersion"]},
+            headers={"Origin": "http://testserver"},
+        )
 
         client.post("/api/login", json={"username": "mom", "password": "family2026"})
         mom_board = client.get("/api/board").json()
@@ -701,6 +733,126 @@ def test_trip_put_updates_and_persists(db_path: Path) -> None:
     assert persisted["startDate"] == "2026-07-10"
 
 
+def test_non_owner_trip_update_changes_shared_trip(db_path: Path) -> None:
+    with TestClient(create_app(db_path)) as client:
+        client.post("/api/login", json={"username": "mom", "password": "family2026"})
+        response = client.put(
+            "/api/trip",
+            json={
+                "name": "Mom Edit",
+                "destination": "Banff, AB",
+                "startDate": "2026-07-10",
+                "endDate": "2026-07-14",
+            },
+            headers={"Origin": "http://testserver"},
+        )
+
+        assert response.status_code == 200
+
+        shared_trip = client.get("/api/trip").json()
+
+    assert shared_trip["name"] == "Mom Edit"
+    assert shared_trip["destination"] == "Banff, AB"
+
+
+def test_stale_board_write_returns_409_conflict(db_path: Path) -> None:
+    with TestClient(create_app(db_path)) as client:
+        client.post("/api/login", json={"username": "dad", "password": "family2026"})
+        initial_payload = client.get("/api/board").json()
+        board = initial_payload["board"]
+
+        first_update = {
+            **board,
+            "columns": [
+                {**board["columns"][0], "title": "Dad Edit"},
+                *board["columns"][1:],
+            ],
+        }
+        second_update = {
+            **board,
+            "columns": [
+                board["columns"][0],
+                {**board["columns"][1], "title": "Mom Edit"},
+                *board["columns"][2:],
+            ],
+        }
+
+        first_response = client.put(
+            "/api/board",
+            json={
+                "board": first_update,
+                "expectedBoardVersion": initial_payload["boardVersion"],
+            },
+            headers={"Origin": "http://testserver"},
+        )
+        second_response = client.put(
+            "/api/board",
+            json={
+                "board": second_update,
+                "expectedBoardVersion": initial_payload["boardVersion"],
+            },
+            headers={"Origin": "http://testserver"},
+        )
+
+        final_payload = client.get("/api/board").json()
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 409
+    assert "Board version conflict" in second_response.json()["detail"]
+    assert final_payload["board"]["columns"][0]["title"] == "Dad Edit"
+
+
+def test_read_board_strips_missing_card_references(client: TestClient) -> None:
+    client.post("/api/login", json={"username": "dad", "password": "family2026"})
+    payload = client.get("/api/board").json()
+    board = payload["board"]
+    board["columns"][0]["cardIds"].append("ghost-card")
+
+    client.app.state.db.execute(
+        "UPDATE boards SET board_json = ? WHERE user_id = (SELECT id FROM users WHERE username = ?)",
+        (json.dumps(board), "dad"),
+    )
+    client.app.state.db.commit()
+
+    repaired = client.get("/api/board").json()
+
+    assert "ghost-card" not in repaired["board"]["columns"][0]["cardIds"]
+
+
+def test_read_board_adds_missing_card_type(client: TestClient) -> None:
+    client.post("/api/login", json={"username": "dad", "password": "family2026"})
+    payload = client.get("/api/board").json()
+    board = payload["board"]
+    board["cards"]["card-d1-1"].pop("type", None)
+
+    client.app.state.db.execute(
+        "UPDATE boards SET board_json = ? WHERE user_id = (SELECT id FROM users WHERE username = ?)",
+        (json.dumps(board), "dad"),
+    )
+    client.app.state.db.commit()
+
+    repaired = client.get("/api/board").json()
+
+    assert repaired["board"]["cards"]["card-d1-1"]["type"] == "transport"
+
+
+def test_read_board_normalizes_invalid_card_status(client: TestClient) -> None:
+    client.post("/api/login", json={"username": "dad", "password": "family2026"})
+    payload = client.get("/api/board").json()
+    board = payload["board"]
+    board["cards"]["card-d1-1"]["status"] = "maybe"
+
+    client.app.state.db.execute(
+        "UPDATE boards SET board_json = ? WHERE user_id = (SELECT id FROM users WHERE username = ?)",
+        (json.dumps(board), "dad"),
+    )
+    client.app.state.db.commit()
+
+    repaired = client.get("/api/board").json()
+
+    assert repaired["board"]["cards"]["card-d1-1"]["status"] == "idea"
+
+
 def test_trip_put_requires_authentication(client: TestClient) -> None:
     response = client.put("/api/trip", json={"name": "Test", "destination": "x"})
     assert response.status_code == 401
@@ -739,6 +891,7 @@ def test_quick_add_text_creates_card_in_unscheduled_column(client: TestClient) -
     assert card_id in board["cards"]
     assert board["cards"][card_id]["title"] == "Check out the Whistler Brewing Company"
     assert board["cards"][card_id]["suggested_by"] == "Trija"
+    assert board["cards"][card_id]["type"] == "activity"
     assert board["cards"][card_id]["status"] == "idea"
     unscheduled_col = next(col for col in board["columns"] if col["id"] == "col-unscheduled")
     assert card_id in unscheduled_col["cardIds"]
@@ -757,3 +910,43 @@ def test_quick_add_rejects_empty_payload(client: TestClient) -> None:
         headers={"Origin": "http://testserver"},
     )
     assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_fetch_og_metadata_rejects_private_ip_target() -> None:
+    metadata = await api_module._fetch_og_metadata("http://127.0.0.1/internal")
+
+    assert metadata == {}
+
+
+@pytest.mark.anyio
+async def test_fetch_og_metadata_rejects_redirect_to_private_ip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == "https://travel.example/idea":
+            return httpx.Response(302, headers={"location": "http://127.0.0.1/internal"})
+        raise AssertionError(f"Unexpected request to {request.url}")
+
+    monkeypatch.setattr(
+        api_module.socket,
+        "getaddrinfo",
+        lambda host, port, type=0: [(0, 0, 0, "", ("93.184.216.34", port))],
+    )
+
+    class StubAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            self._transport = httpx.MockTransport(handler)
+            self._client = httpx.AsyncClient(transport=self._transport, follow_redirects=False)
+
+        async def __aenter__(self) -> httpx.AsyncClient:
+            return self._client
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            await self._client.aclose()
+
+    monkeypatch.setattr(api_module.httpx, "AsyncClient", StubAsyncClient)
+
+    metadata = await api_module._fetch_og_metadata("https://travel.example/idea")
+
+    assert metadata == {}

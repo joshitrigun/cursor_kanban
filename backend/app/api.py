@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import ipaddress
 import re
+import socket
 from collections.abc import Callable
 from time import monotonic
 from typing import Any, Dict, Optional, Union
-from urllib.parse import urlparse, urlsplit
+from urllib.parse import urljoin, urlparse, urlsplit
 from uuid import uuid4
 
 import bcrypt
@@ -24,12 +26,15 @@ from app.ai import (
 )
 from app.db import (
     BoardNotFoundError,
+    BoardVersionConflictError,
     Connection,
     append_chat_exchange_for_username,
     get_board_for_username,
     get_chat_history_for_username,
     get_trip_for_user,
     get_user_for_auth,
+    normalize_card_type,
+    sanitize_board_document,
     update_board_for_username,
     upsert_trip_for_user,
 )
@@ -288,7 +293,10 @@ def update_board(
             db,
             username,
             payload.board.model_dump(mode="json"),
+            payload.expectedBoardVersion,
         )
+    except BoardVersionConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except BoardNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -390,27 +398,24 @@ async def run_ai_chat(
         ) from exc
 
     response_payload = current_board
-    board_mutation = None
+    proposed_board = None
     if structured_response.board is not None:
-        board_mutation = structured_response.board.model_dump(mode="json")
-        board_mutation = normalize_board_card_times(board_mutation)
-        response_payload = update_board_for_username(
-            db,
-            username,
-            board_mutation,
-        )
+        board_mutation_raw = structured_response.board.model_dump(mode="json")
+        board_mutation_raw = normalize_board_card_times(board_mutation_raw)
+        proposed_board, _ = sanitize_board_document(board_mutation_raw)
 
     append_chat_exchange_for_username(
         db,
         username,
         payload.message,
         structured_response.assistantMessage,
-        board_mutation,
+        proposed_board,
     )
 
     return {
         "assistantMessage": structured_response.assistantMessage,
-        "boardUpdated": board_mutation is not None,
+        "summaryOnly": structured_response.summaryOnly,
+        "proposedBoard": proposed_board,
         **response_payload,
     }
 
@@ -453,15 +458,80 @@ def _is_safe_url(url: str) -> bool:
         return False
 
 
+def _is_public_ip_address(ip_text: str) -> bool:
+    ip = ipaddress.ip_address(ip_text)
+    return not (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def _is_safe_redirect_target(current_url: str, redirect_target: str) -> str | None:
+    next_url = urljoin(current_url, redirect_target)
+    return next_url if _is_safe_url(next_url) else None
+
+
+def _validate_public_http_url(url: str) -> None:
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL hostname is missing.")
+
+    try:
+        if not _is_public_ip_address(hostname):
+            raise ValueError("URL resolves to a non-public IP address.")
+        return
+    except ValueError:
+        pass
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        resolved = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError("Could not resolve URL hostname.") from exc
+
+    addresses = {
+        item[4][0]
+        for item in resolved
+        if item[4]
+    }
+    if not addresses:
+        raise ValueError("URL hostname did not resolve to any IP addresses.")
+
+    for address in addresses:
+        if not _is_public_ip_address(address):
+            raise ValueError("URL resolves to a non-public IP address.")
+
+
 async def _fetch_og_metadata(url: str) -> dict[str, str]:
     try:
-        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as http_client:
-            response = await http_client.get(
-                url, headers={"User-Agent": "Mozilla/5.0 (compatible; VacationPlanner/1.0)"}
-            )
-            if not response.is_success:
+        current_url = url
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; VacationPlanner/1.0)"}
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as http_client:
+            for _ in range(5):
+                _validate_public_http_url(current_url)
+                response = await http_client.get(current_url, headers=headers)
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        return {}
+                    next_url = _is_safe_redirect_target(current_url, location)
+                    if next_url is None:
+                        return {}
+                    current_url = next_url
+                    continue
+
+                if not response.is_success:
+                    return {}
+
+                html = response.text
+                break
+            else:
                 return {}
-            html = response.text
 
         og_data: dict[str, str] = {}
         for prop, key in [
@@ -508,6 +578,7 @@ async def quick_add_card(
         "title": raw_title[:80],
         "details": "",
         "suggested_by": display_name,
+        "type": "activity",
         "status": "idea",
     }
     if payload.url.strip():
@@ -538,8 +609,9 @@ async def quick_add_card(
                 card["ai_summary"] = enrichment["summary"]
             if enrichment["tag"]:
                 card["ai_tag"] = enrichment["tag"]
+            card["type"] = normalize_card_type(card)
         except Exception:
             pass  # Enrichment failure is non-fatal; card is saved without enrichment
 
-    updated = update_board_for_username(db, username, board)
+    updated = update_board_for_username(db, username, board, board_data["boardVersion"])
     return {**updated, "cardId": card_id}

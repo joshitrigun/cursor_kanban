@@ -14,7 +14,7 @@ import {
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
 import { DayPlanView } from "@/components/DayPlanView";
-import { createId, initialData, moveCard, type BoardData, type Card } from "@/lib/kanban";
+import { computeReadiness, createId, initialData, moveCard, normalizeCardStatus, type BoardData, type Card } from "@/lib/kanban";
 
 type KanbanBoardProps = {
   board?: BoardData;
@@ -25,10 +25,7 @@ type KanbanBoardProps = {
   errorMessage?: string | null;
 };
 
-const isCardBooked = (card: Card) => card.status === "booked" || card.status === "confirmed";
-
-const matchesCard = (card: Card, tag: string, terms: RegExp) =>
-  card.ai_tag === tag || terms.test(`${card.title} ${card.details} ${card.location ?? ""}`);
+const isCardBooked = (card: Card) => normalizeCardStatus(card.status) === "booked" || normalizeCardStatus(card.status) === "confirmed";
 
 export const KanbanBoard = ({
   board,
@@ -59,25 +56,11 @@ export const KanbanBoard = ({
     column.id.startsWith("col-day-")
   ).length;
   const allCards = Object.values(resolvedBoard.cards);
-  const readinessItems = [
-    {
-      label: "Transport",
-      ready: allCards.some((card) => isCardBooked(card) && matchesCard(card, "Transport", /drive|travel|transfer|flight|airport|ferry|car|train/i)),
-    },
-    {
-      label: "Lodging",
-      ready: allCards.some((card) => isCardBooked(card) && matchesCard(card, "Lodging", /hotel|airbnb|stay|check-in|lodging|accommodation/i)),
-    },
-    {
-      label: "Meals",
-      ready: allCards.some((card) => matchesCard(card, "Food", /breakfast|brunch|lunch|dinner|meal|restaurant|coffee/i)),
-    },
-    {
-      label: "Activities",
-      ready: allCards.some((card) => matchesCard(card, "Activity", /gondola|zipline|park|falls|bridge|market|village/i)),
-    },
-  ];
-  const readinessCount = readinessItems.filter((item) => item.ready).length;
+  const { items: readinessItems, coveredCount: readinessCount, nextActions, tripTotal, bookedTotal } = useMemo(
+    () => computeReadiness(allCards),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [resolvedBoard.cards],
+  );
 
   const commitBoard = (updater: (currentBoard: BoardData) => BoardData) => {
     const nextBoard = updater(resolvedBoard);
@@ -134,7 +117,7 @@ export const KanbanBoard = ({
       ...prev,
       cards: {
         ...prev.cards,
-        [id]: { id, title, details: details || "No details yet.", status: "idea" },
+        [id]: { id, title, details: details || "No details yet.", type: "activity", status: "idea" },
       },
       columns: prev.columns.map((column) =>
         column.id === columnId
@@ -158,6 +141,19 @@ export const KanbanBoard = ({
             }
           : column
       ),
+    }));
+  };
+
+  const handleUpdateCard = (cardId: string, patch: Partial<Card>) => {
+    commitBoard((prev) => ({
+      ...prev,
+      cards: {
+        ...prev.cards,
+        [cardId]: {
+          ...prev.cards[cardId],
+          ...patch,
+        },
+      },
     }));
   };
 
@@ -249,7 +245,7 @@ export const KanbanBoard = ({
               ) : null}
             </div>
           </div>
-          <section className="rounded-3xl border border-[var(--stroke)] bg-white/70 p-4">
+          <section className="rounded-3xl border border-[var(--stroke)] bg-white/70 p-4" data-testid="readiness-section">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--gray-text)]">
@@ -262,6 +258,11 @@ export const KanbanBoard = ({
               <span className="rounded-full bg-[var(--snow)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--forest-green)]">
                 Confidence check
               </span>
+              {tripTotal > 0 && (
+                <span className="rounded-full bg-[var(--surface)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--navy-dark)]">
+                  Est. ${tripTotal.toLocaleString()} total
+                </span>
+              )}
             </div>
             <div className="mt-4 grid gap-2 sm:grid-cols-4">
               {readinessItems.map((item) => (
@@ -280,6 +281,29 @@ export const KanbanBoard = ({
                 </div>
               ))}
             </div>
+            {tripTotal > 0 && (
+              <div className="mt-3 flex flex-wrap gap-4 text-xs font-semibold" data-testid="cost-breakdown">
+                <span className="text-green-700">${bookedTotal.toLocaleString()} booked</span>
+                <span className="text-yellow-700">${(tripTotal - bookedTotal).toLocaleString()} unbooked</span>
+              </div>
+            )}
+            {nextActions.length > 0 && (
+              <div className="mt-4 rounded-2xl border border-[var(--stroke)] bg-white/80 px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
+                  Top next actions
+                </p>
+                <ol className="mt-2 flex flex-col gap-1">
+                  {nextActions.map((action, i) => (
+                    <li key={action} className="flex items-center gap-2 text-sm font-semibold text-[var(--navy-dark)]">
+                      <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[var(--accent-yellow)] text-[10px] font-bold text-white">
+                        {i + 1}
+                      </span>
+                      {action}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
           </section>
           <div className="sticky top-3 z-20 -mx-2 flex gap-2 overflow-x-auto rounded-2xl border border-[var(--stroke)] bg-white/90 p-2 shadow-[0_10px_30px_rgba(3,33,71,0.08)] backdrop-blur">
             <button
@@ -331,9 +355,10 @@ export const KanbanBoard = ({
                 <div key={column.id} className="w-[300px] flex-shrink-0">
                   <KanbanColumn
                     column={column}
-                    cards={column.cardIds.map((cardId) => resolvedBoard.cards[cardId])}
+                    cards={column.cardIds.map((cardId) => resolvedBoard.cards[cardId]).filter(Boolean)}
                     onRename={handleRenameColumn}
                     onAddCard={handleAddCard}
+                    onUpdateCard={handleUpdateCard}
                     onDeleteCard={handleDeleteCard}
                   />
                 </div>
@@ -357,6 +382,8 @@ export const KanbanBoard = ({
                 cards={col.cardIds.map((id) => resolvedBoard.cards[id]).filter(Boolean)}
                 onLock={handleLockColumn}
                 onUnlock={handleUnlockColumn}
+                onUpdateCard={handleUpdateCard}
+                username={username}
               />
             );
           })()

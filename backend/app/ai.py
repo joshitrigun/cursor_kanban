@@ -27,19 +27,31 @@ Return exactly one JSON object and no surrounding commentary.
 The JSON must match this shape:
 {
   \"assistantMessage\": string,
-  \"board\": {
-    \"columns\": [{ \"id\": string, \"title\": string, \"cardIds\": string[] }],
-    \"cards\": { [cardId: string]: { \"id\": string, \"title\": string, \"details\": string } }
-  } | null
+  \"summaryOnly\": boolean,
+  \"board\": { ... } | null
 }
-Only include a non-null board when you are confident a board update should be applied.
-When no board update is needed, set board to null.
-The board has an Ideas Inbox column with id col-unscheduled and one fixed day column per trip day.
-Preserve all existing column ids and card references.
-Use travel statuses when helpful: idea, researching, shortlisted, booked, confirmed, skipped.
-Keep all card references valid.
-When the user mentions a time for a card, set start_time in 24-hour HH:MM format.
-Do not rely on putting times only in the title or details.
+
+summaryOnly rules:
+- Set summaryOnly to true when the user is asking for analysis, a summary, advice, or a gap review and NO board changes are needed.
+  Examples: "What's missing?", "Which day is overloaded?", "What still needs booking?", "Create a rainy-day backup plan.", "How does the trip look?"
+- Set summaryOnly to false when you are making a board change or answering a simple question that does not require analysis.
+- When summaryOnly is true, set board to null.
+
+board rules:
+- Only include a non-null board when you are confident a board update should be applied.
+- When no board update is needed, set board to null.
+- The board has an Ideas Inbox column with id col-unscheduled and one fixed day column per trip day.
+- Preserve all existing column ids and card references.
+- Use travel statuses when helpful: idea, researching, shortlisted, booked, confirmed, skipped.
+- Keep all card references valid.
+- When the user mentions a time for a card, set start_time in 24-hour HH:MM format.
+- Do not rely on putting times only in the title or details.
+
+For planning gap analysis (summaryOnly: true), structure your assistantMessage clearly:
+- Lead with the key finding.
+- Use short bullet points for gaps or recommendations.
+- Keep the total response under 300 words.
+- Be specific to the actual board content, not generic advice.
 """
 
 

@@ -1,5 +1,10 @@
 # Family Vacation Planner
 
+## Repository Layout
+
+- The active application lives in the top-level `backend/`, `frontend/`, `scripts/`, and root deployment files.
+- `cursor_kanban/` is an archived duplicate snapshot kept only for historical reference. It is not the source of truth and should not receive feature work or bug fixes.
+
 AI-powered family trip planner built from a Kanban MVP. The app gives each family member a named login, a shared day-by-day trip board, an Unscheduled idea inbox, quick-add link capture, finalized day plans, and an AI chat sidebar backed by OpenRouter.
 
 ## Stack

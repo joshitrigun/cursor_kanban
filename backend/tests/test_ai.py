@@ -60,6 +60,24 @@ def test_parse_structured_assistant_response_accepts_json_code_fence() -> None:
     assert result.board is None
 
 
+def test_parse_structured_assistant_response_accepts_summary_only_flag() -> None:
+    result = parse_structured_assistant_response(
+        '{"assistantMessage":"Day 3 is overloaded.","summaryOnly":true,"board":null}'
+    )
+
+    assert result.assistantMessage == "Day 3 is overloaded."
+    assert result.summaryOnly is True
+    assert result.board is None
+
+
+def test_parse_structured_assistant_response_defaults_summary_only_to_false() -> None:
+    result = parse_structured_assistant_response(
+        '{"assistantMessage":"Done.","board":null}'
+    )
+
+    assert result.summaryOnly is False
+
+
 def test_parse_structured_assistant_response_rejects_invalid_json() -> None:
     with pytest.raises(AIResponseValidationError, match="valid JSON"):
         parse_structured_assistant_response("not-json")

@@ -1,3 +1,11 @@
+# Archived Snapshot
+
+This directory is an archived duplicate snapshot of the project kept for reference only.
+
+- The active application lives in the top-level repository directories, not here.
+- Do not implement new features or bug fixes in this tree.
+- If behavior diverges, treat the top-level app as the source of truth.
+
 # Family Vacation Planner
 
 AI-powered family trip planner built from a Kanban MVP. The app gives each family member a named login, a shared day-by-day trip board, an Unscheduled idea inbox, quick-add link capture, finalized day plans, and an AI chat sidebar backed by OpenRouter.

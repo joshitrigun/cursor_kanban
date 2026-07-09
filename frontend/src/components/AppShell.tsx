@@ -1,9 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo, type FormEvent } from "react";
 import { KanbanBoard } from "@/components/KanbanBoard";
 import { ChatSidebar, type ChatMessage } from "@/components/ChatSidebar";
-import type { BoardData } from "@/lib/kanban";
+import { diffBoards, type BoardData } from "@/lib/kanban";
 
 type SessionResponse = {
   authenticated: boolean;
@@ -20,7 +20,8 @@ type BoardResponse = {
 
 type AIChatResponse = {
   assistantMessage: string;
-  boardUpdated: boolean;
+  summaryOnly: boolean;
+  proposedBoard: BoardData | null;
   board: BoardData;
   boardVersion: number;
   schemaVersion: number;
@@ -61,6 +62,7 @@ const measurePerformance = (name: string, startMark: string, endMark: string) =>
 export const AppShell = () => {
   const [session, setSession] = useState<SessionResponse | null>(null);
   const [board, setBoard] = useState<BoardData | null>(null);
+  const [boardVersion, setBoardVersion] = useState<number | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -71,11 +73,13 @@ export const AppShell = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiErrorMessage, setAiErrorMessage] = useState<string | null>(null);
+  const [pendingProposal, setPendingProposal] = useState<BoardData | null>(null);
   const [quickAddText, setQuickAddText] = useState("");
   const [isQuickAdding, setIsQuickAdding] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const saveQueueRef = useRef(Promise.resolve());
   const pendingBoardRef = useRef<BoardData | null>(null);
+  const boardVersionRef = useRef<number | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const debounceResolveRef = useRef<(() => void) | null>(null);
   const appLoadStartMarkRef = useRef(`app-load-start-${Date.now()}`);
@@ -87,6 +91,13 @@ export const AppShell = () => {
     setChatMessages([]);
     setAiErrorMessage(null);
     setIsAiLoading(false);
+    setPendingProposal(null);
+  };
+
+  const applyPersistedBoard = (payload: BoardResponse) => {
+    setBoard(payload.board);
+    setBoardVersion(payload.boardVersion);
+    boardVersionRef.current = payload.boardVersion;
   };
 
   const fetchBoard = async () => {
@@ -103,9 +114,11 @@ export const AppShell = () => {
       }
 
       const nextBoard = (await response.json()) as BoardResponse;
-      setBoard(nextBoard.board);
+      applyPersistedBoard(nextBoard);
     } catch {
       setBoard(null);
+      setBoardVersion(null);
+      boardVersionRef.current = null;
       setBoardErrorMessage("Unable to load the board. Try again.");
     } finally {
       setIsBoardLoading(false);
@@ -155,10 +168,11 @@ export const AppShell = () => {
       const data = (await response.json()) as AIChatResponse;
       setChatMessages((prev) => [
         ...prev,
-        { role: "assistant", content: data.assistantMessage },
+        { role: "assistant", content: data.assistantMessage, summaryOnly: data.summaryOnly },
       ]);
-      if (data.boardUpdated) {
-        setBoard(data.board);
+      applyPersistedBoard(data);
+      if (data.proposedBoard) {
+        setPendingProposal(data.proposedBoard);
       }
     } catch {
       setChatMessages((prev) => {
@@ -182,9 +196,10 @@ export const AppShell = () => {
 
   const flushPendingBoard = async () => {
     const nextBoard = pendingBoardRef.current;
+    const expectedBoardVersion = boardVersionRef.current;
     pendingBoardRef.current = null;
 
-    if (!nextBoard) {
+    if (!nextBoard || expectedBoardVersion === null) {
       return;
     }
 
@@ -197,7 +212,10 @@ export const AppShell = () => {
           "Content-Type": "application/json",
         },
         credentials: "include",
-        body: JSON.stringify({ board: nextBoard }),
+        body: JSON.stringify({
+          board: nextBoard,
+          expectedBoardVersion,
+        }),
       });
 
       if (!response.ok) {
@@ -205,9 +223,10 @@ export const AppShell = () => {
       }
 
       const persistedBoard = (await response.json()) as BoardResponse;
-      setBoard(persistedBoard.board);
+      applyPersistedBoard(persistedBoard);
     } catch {
-      setBoardErrorMessage("Unable to save board. Reload to retry.");
+      await fetchBoard();
+      setBoardErrorMessage("Unable to save board. The latest board was reloaded.");
     } finally {
       setIsSavingBoard(false);
     }
@@ -270,6 +289,8 @@ export const AppShell = () => {
           setSession(nextSession);
           if (!nextSession.authenticated) {
             setBoard(null);
+            setBoardVersion(null);
+            boardVersionRef.current = null;
             resetChatState();
           }
         }
@@ -277,6 +298,8 @@ export const AppShell = () => {
         if (!cancelled) {
           setSession(unauthenticatedSession);
           setBoard(null);
+          setBoardVersion(null);
+          boardVersionRef.current = null;
           resetChatState();
           setErrorMessage("Unable to reach the server. Try again.");
         }
@@ -295,8 +318,7 @@ export const AppShell = () => {
       return;
     }
 
-    void fetchBoard();
-    void fetchChatHistory();
+    void Promise.all([fetchBoard(), fetchChatHistory()]);
   }, [session?.authenticated]);
 
   useEffect(() => {
@@ -322,6 +344,38 @@ export const AppShell = () => {
   }, []);
 
   const toggleChat = useCallback(() => setIsChatOpen((v) => !v), []);
+
+  const applyProposal = useCallback(async () => {
+    if (!pendingProposal || boardVersionRef.current === null) return;
+    const proposalToApply = pendingProposal;
+    setPendingProposal(null);
+    setIsSavingBoard(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/board`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          board: proposalToApply,
+          expectedBoardVersion: boardVersionRef.current,
+        }),
+      });
+      if (!response.ok) throw new Error();
+      const persisted = (await response.json()) as BoardResponse;
+      applyPersistedBoard(persisted);
+    } catch {
+      setBoardErrorMessage("Unable to apply AI changes. Try again.");
+    } finally {
+      setIsSavingBoard(false);
+    }
+  }, [pendingProposal]);
+
+  const rejectProposal = useCallback(() => setPendingProposal(null), []);
+
+  const pendingProposalDiff = useMemo(() => {
+    if (!pendingProposal || !board) return null;
+    return diffBoards(board, pendingProposal);
+  }, [pendingProposal, board]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -378,6 +432,8 @@ export const AppShell = () => {
     } finally {
       setSession(unauthenticatedSession);
       setBoard(null);
+      setBoardVersion(null);
+      boardVersionRef.current = null;
       resetChatState();
       setIsSubmitting(false);
     }
@@ -401,7 +457,7 @@ export const AppShell = () => {
       });
       if (response.ok) {
         const data = (await response.json()) as BoardResponse;
-        setBoard(data.board);
+        applyPersistedBoard(data);
         setQuickAddText("");
         markPerformance("quick-add-card-visible");
         measurePerformance("quick-add-to-card-visible", quickAddStartMarkRef.current, "quick-add-card-visible");
@@ -502,6 +558,9 @@ export const AppShell = () => {
           errorMessage={aiErrorMessage}
           isOpen={isChatOpen}
           onClose={() => setIsChatOpen(false)}
+          pendingProposalDiff={pendingProposalDiff}
+          onApplyProposal={applyProposal}
+          onRejectProposal={rejectProposal}
         />
       </div>
     );

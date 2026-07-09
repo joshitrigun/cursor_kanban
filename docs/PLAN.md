@@ -25,6 +25,8 @@ This document turns the project outline into an execution plan that can be appro
 
 The next product work should optimize for itinerary confidence and family coordination rather than generic task management.
 
+See [docs/PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md) for the phased MVP Plus, V2, and V3 travel product roadmap.
+
 - Make the day itinerary the primary experience: Morning/Afternoon/Evening/Anytime sections, meal and travel gaps, pace warnings, and mobile-first day switching.
 - Treat the Ideas Inbox as the family intake area: category grouping, suggested-by visibility, and quick actions to assign, shortlist, or reject ideas.
 - Use travel-native statuses: Idea, Researching, Shortlisted, Booked, Confirmed, and Skipped.
