@@ -141,6 +141,20 @@ def test_login_rejects_invalid_credentials(client: TestClient) -> None:
     }
 
 
+def test_login_rejects_unknown_username(client: TestClient) -> None:
+    # Unknown username should return 401 (and internally run dummy bcrypt to equalise timing)
+    response = client.post(
+        "/api/login",
+        json={"username": "nobody", "password": "any"},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "authenticated": False,
+        "message": "Invalid username or password.",
+    }
+
+
 def test_logout_clears_session_cookie(client: TestClient) -> None:
     client.post(
         "/api/login",
@@ -152,6 +166,25 @@ def test_logout_clears_session_cookie(client: TestClient) -> None:
     assert response.status_code == 204
     session_response = client.get("/api/session")
     assert session_response.json() == {"authenticated": False, "username": None, "displayName": None}
+
+
+def test_logout_revokes_session_server_side(client: TestClient) -> None:
+    login_response = client.post(
+        "/api/login",
+        json={"username": "dad", "password": "family2026"},
+    )
+    old_cookie = login_response.cookies.get("pm_session")
+
+    client.post("/api/logout", headers={"Origin": "http://testserver"})
+
+    # Replay the cookie that was valid before logout: the signature is still
+    # valid, but the underlying session must be revoked server-side.
+    client.cookies.set("pm_session", old_cookie)
+    session_response = client.get("/api/session")
+    board_response = client.get("/api/board")
+
+    assert session_response.json() == {"authenticated": False, "username": None, "displayName": None}
+    assert board_response.status_code == 401
 
 
 def test_database_is_created_on_startup(db_path: Path, client: TestClient) -> None:
@@ -578,16 +611,27 @@ def test_login_sets_secure_cookie_outside_development(
     assert response.headers["strict-transport-security"] == "max-age=31536000; includeSubDomains"
 
 
-def test_production_does_not_load_dotenv_defaults(
+def test_trust_proxy_headers_setting_defaults_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PM_ENV", "production")
     monkeypatch.setenv("PM_SESSION_SECRET", "s" * 32)
-    monkeypatch.setenv("PM_AUTH_USERNAME", "env-user")
 
     settings = create_app().state.settings
 
-    assert settings.auth_username == "env-user"
+    assert settings.trust_proxy_headers is False
+
+
+def test_trust_proxy_headers_setting_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PM_ENV", "production")
+    monkeypatch.setenv("PM_SESSION_SECRET", "s" * 32)
+    monkeypatch.setenv("PM_TRUST_PROXY_HEADERS", "true")
+
+    settings = create_app().state.settings
+
+    assert settings.trust_proxy_headers is True
 
 
 def test_production_rejects_state_change_without_origin_header(

@@ -78,7 +78,7 @@ export const KanbanCard = ({ card, onUpdateCard, onDelete }: KanbanCardProps) =>
               {[card.start_time, card.location].filter(Boolean).join(" · ")}
             </p>
           )}
-          <p className="mt-2 text-sm leading-6 text-[var(--gray-text)]">
+          <p className="mt-2 line-clamp-2 text-sm leading-6 text-[var(--gray-text)]">
             {card.ai_summary || card.details}
           </p>
           {card.content_url && (

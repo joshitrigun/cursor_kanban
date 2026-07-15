@@ -150,6 +150,29 @@ describe("KanbanBoard", () => {
     expect(within(section).getByText("Top next actions")).toBeInTheDocument();
   });
 
+  it("shows a pitch-ready overview with days planned, decisions needed, and bookings missing", () => {
+    render(<KanbanBoard />);
+    const overview = screen.getByTestId("pitch-overview");
+    expect(within(overview).getByText(/days planned/i)).toBeInTheDocument();
+    expect(within(overview).getByText(/decisions needed/i)).toBeInTheDocument();
+    expect(within(overview).getByText(/bookings missing/i)).toBeInTheDocument();
+  });
+
+  it("shows the latest AI activity when provided", () => {
+    render(<KanbanBoard latestActivity="Booked the Whistler hotel." />);
+    expect(screen.getByTestId("latest-activity")).toHaveTextContent(
+      "Booked the Whistler hotel."
+    );
+  });
+
+  it("defaults to today's trip day when a trip start date is provided", () => {
+    const twoDaysAgo = new Date();
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+    const isoLocal = `${twoDaysAgo.getFullYear()}-${String(twoDaysAgo.getMonth() + 1).padStart(2, "0")}-${String(twoDaysAgo.getDate()).padStart(2, "0")}`;
+    render(<KanbanBoard tripStartDate={isoLocal} />);
+    expect(screen.getByRole("heading", { name: /day 3/i })).toBeInTheDocument();
+  });
+
   it("ignores missing card references in the all-days view", async () => {
     render(
       <KanbanBoard

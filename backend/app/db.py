@@ -226,6 +226,15 @@ def initialize_database(connection: Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_chat_messages_board_order
             ON chat_messages (board_id, message_order)
         """,
+        """
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            revoked_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+        """,
     ]:
         connection.execute(stmt)
 
@@ -341,6 +350,31 @@ def get_user_for_auth(connection: Connection, username: str) -> Row | None:
         "SELECT id, username, display_name, hashed_password FROM users WHERE username = ?",
         (username,),
     ).fetchone()
+
+
+def create_session(connection: Connection, user_id: str) -> str:
+    session_id = uuid4().hex
+    connection.execute(
+        "INSERT INTO sessions (id, user_id, created_at, revoked_at) VALUES (?, ?, ?, NULL)",
+        (session_id, user_id, utc_now()),
+    )
+    connection.commit()
+    return session_id
+
+
+def is_session_active(connection: Connection, session_id: str) -> bool:
+    row = connection.execute(
+        "SELECT revoked_at FROM sessions WHERE id = ?", (session_id,)
+    ).fetchone()
+    return row is not None and row["revoked_at"] is None
+
+
+def revoke_session(connection: Connection, session_id: str) -> None:
+    connection.execute(
+        "UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+        (utc_now(), session_id),
+    )
+    connection.commit()
 
 
 def get_board_for_username(connection: Connection, username: str) -> dict[str, object]:

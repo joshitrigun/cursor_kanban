@@ -64,6 +64,10 @@ describe("AppShell", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ messages: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ name: "", destination: "", startDate: null, endDate: null }),
       });
 
     render(<AppShell />);
@@ -132,6 +136,10 @@ describe("AppShell", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ messages: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ name: "", destination: "", startDate: null, endDate: null }),
       });
 
     render(<AppShell />);
@@ -158,6 +166,10 @@ describe("AppShell", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ messages: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ name: "", destination: "", startDate: null, endDate: null }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -205,6 +217,10 @@ describe("AppShell", () => {
         json: async () => ({ messages: [] }),
       })
       .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ name: "", destination: "", startDate: null, endDate: null }),
+      })
+      .mockResolvedValueOnce({
         ok: false,
         status: 502,
         json: async () => ({ detail: "AI chat request failed." }),
@@ -241,6 +257,10 @@ describe("AppShell", () => {
         ok: true,
         json: async () => ({ messages: [] }),
       })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ name: "", destination: "", startDate: null, endDate: null }),
+      })
       .mockImplementationOnce(
         () =>
           new Promise<MockFetchResponse>((resolve) => {
@@ -273,23 +293,23 @@ describe("AppShell", () => {
       target: { value: "Ready" },
     });
 
-    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(mockFetch).toHaveBeenCalledTimes(4);
 
     fireEvent.change(screen.getByTestId("chat-input"), {
       target: { value: "Summarize the board." },
     });
     fireEvent.click(screen.getByRole("button", { name: /send/i }));
 
-    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(mockFetch).toHaveBeenCalledTimes(4);
 
     await act(async () => {
       vi.advanceTimersByTime(300);
       await flushMicrotasks();
     });
 
-    expect(mockFetch).toHaveBeenCalledTimes(4);
+    expect(mockFetch).toHaveBeenCalledTimes(5);
 
-    const boardSaveCall = mockFetch.mock.calls[3];
+    const boardSaveCall = mockFetch.mock.calls[4];
     const boardSaveRequest = boardSaveCall[1] as RequestInit;
     const boardSavePayload = JSON.parse(String(boardSaveRequest.body));
 
@@ -342,6 +362,10 @@ describe("AppShell", () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ name: "", destination: "", startDate: null, endDate: null }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => ({
           board: {
             ...initialData,
@@ -369,16 +393,16 @@ describe("AppShell", () => {
     fireEvent.change(titleInput, { target: { value: "Ready" } });
     fireEvent.change(titleInput, { target: { value: "Ready Again" } });
 
-    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(mockFetch).toHaveBeenCalledTimes(4);
 
     await act(async () => {
       vi.advanceTimersByTime(300);
       await flushMicrotasks();
     });
 
-    expect(mockFetch).toHaveBeenCalledTimes(4);
+    expect(mockFetch).toHaveBeenCalledTimes(5);
 
-    const boardSaveCall = mockFetch.mock.calls[3];
+    const boardSaveCall = mockFetch.mock.calls[4];
     const requestInit = boardSaveCall[1] as RequestInit;
     const payload = JSON.parse(String(requestInit.body));
 
@@ -401,6 +425,10 @@ describe("AppShell", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ messages: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ name: "", destination: "", startDate: null, endDate: null }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -431,7 +459,7 @@ describe("AppShell", () => {
       expect(screen.getByText("The board looks good.")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByRole("button", { name: /log out/i }));
+    await userEvent.click(screen.getAllByRole("button", { name: /log out/i })[0]);
 
     await waitFor(() => {
       expect(screen.getByTestId("login-form")).toBeInTheDocument();

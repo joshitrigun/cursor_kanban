@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -23,6 +23,8 @@ type KanbanBoardProps = {
   onLogout?: () => Promise<void> | void;
   statusMessage?: string;
   errorMessage?: string | null;
+  tripStartDate?: string | null;
+  latestActivity?: string | null;
 };
 
 const isCardBooked = (card: Card) => normalizeCardStatus(card.status) === "booked" || normalizeCardStatus(card.status) === "confirmed";
@@ -34,11 +36,35 @@ export const KanbanBoard = ({
   onLogout,
   statusMessage,
   errorMessage,
+  tripStartDate,
+  latestActivity,
 }: KanbanBoardProps) => {
   const [internalBoard, setInternalBoard] = useState<BoardData>(() => initialData);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>("col-day-1");
   const resolvedBoard = board ?? internalBoard;
+  const hasAppliedDefaultDayRef = useRef(false);
+
+  useEffect(() => {
+    if (hasAppliedDefaultDayRef.current || !tripStartDate) {
+      return;
+    }
+
+    const dayColumns = resolvedBoard.columns.filter((column) => column.id.startsWith("col-day-"));
+    if (dayColumns.length === 0) {
+      return;
+    }
+
+    const [startYear, startMonth, startDay] = tripStartDate.split("-").map(Number);
+    const today = new Date();
+    const startMidnight = new Date(startYear, startMonth - 1, startDay);
+    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const dayOffset = Math.round((todayMidnight.getTime() - startMidnight.getTime()) / 86_400_000);
+    const clampedIndex = Math.min(Math.max(dayOffset, 0), dayColumns.length - 1);
+
+    hasAppliedDefaultDayRef.current = true;
+    setActiveTab(dayColumns[clampedIndex].id);
+  }, [tripStartDate, resolvedBoard.columns]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -56,7 +82,15 @@ export const KanbanBoard = ({
     column.id.startsWith("col-day-")
   ).length;
   const allCards = Object.values(resolvedBoard.cards);
-  const { items: readinessItems, coveredCount: readinessCount, nextActions, tripTotal, bookedTotal } = useMemo(
+  const {
+    items: readinessItems,
+    coveredCount: readinessCount,
+    nextActions,
+    tripTotal,
+    bookedTotal,
+    decisionsNeeded,
+    bookingsMissing,
+  } = useMemo(
     () => computeReadiness(allCards),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [resolvedBoard.cards],
@@ -186,7 +220,27 @@ export const KanbanBoard = ({
 
       <main className="relative mx-auto flex min-h-screen max-w-[1500px] flex-col gap-8 px-4 pb-16 pt-6 sm:px-6">
         <header className="flex flex-col gap-5 rounded-[28px] border border-[var(--stroke)] bg-white/85 p-5 shadow-[var(--shadow)] backdrop-blur sm:p-6">
-          <div className="flex flex-wrap items-start justify-between gap-6">
+          {/* Compact mobile-only header */}
+          <div className="flex items-center justify-between sm:hidden">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--forest-green)]">Vancouver / Whistler</p>
+              <h1 className="font-display text-xl font-semibold text-[var(--navy-dark)]">Trip Plan</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              {username ? <span className="text-xs font-semibold text-[var(--gray-text)]">{username}</span> : null}
+              {onLogout ? (
+                <button
+                  type="button"
+                  onClick={() => void onLogout()}
+                  className="rounded-full bg-[var(--secondary-purple)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:opacity-90"
+                >
+                  Log out
+                </button>
+              ) : null}
+            </div>
+          </div>
+          {/* Full desktop header */}
+          <div className="hidden sm:flex flex-wrap items-start justify-between gap-6">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--forest-green)]">
                 Vancouver / Whistler Family Vacation
@@ -264,7 +318,18 @@ export const KanbanBoard = ({
                 </span>
               )}
             </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-4">
+            <div className="mt-3 flex flex-wrap gap-4 text-xs font-semibold" data-testid="pitch-overview">
+              <span className="text-[var(--navy-dark)]">{dayCount} days planned</span>
+              <span className="text-yellow-700">{decisionsNeeded} decisions needed</span>
+              <span className="text-red-700">{bookingsMissing} bookings missing</span>
+              {latestActivity && (
+                <span className="truncate text-[var(--gray-text)]" data-testid="latest-activity">
+                  Latest: {latestActivity}
+                </span>
+              )}
+            </div>
+            {/* Readiness grid — desktop only */}
+            <div className="hidden sm:grid mt-4 gap-2 sm:grid-cols-4">
               {readinessItems.map((item) => (
                 <div
                   key={item.label}
@@ -287,8 +352,9 @@ export const KanbanBoard = ({
                 <span className="text-yellow-700">${(tripTotal - bookedTotal).toLocaleString()} unbooked</span>
               </div>
             )}
+            {/* Next actions — desktop only */}
             {nextActions.length > 0 && (
-              <div className="mt-4 rounded-2xl border border-[var(--stroke)] bg-white/80 px-4 py-3">
+              <div className="hidden sm:block mt-4 rounded-2xl border border-[var(--stroke)] bg-white/80 px-4 py-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
                   Top next actions
                 </p>

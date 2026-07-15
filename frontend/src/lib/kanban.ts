@@ -160,6 +160,8 @@ export type ReadinessResult = {
   nextActions: string[];
   tripTotal: number;
   bookedTotal: number;
+  decisionsNeeded: number;
+  bookingsMissing: number;
 };
 
 const isCardBookedOrConfirmed = (card: Card) => {
@@ -237,7 +239,14 @@ export const computeReadiness = (cards: Card[]): ReadinessResult => {
     .filter((c) => isCardBookedOrConfirmed(c))
     .reduce((sum, c) => sum + (c.estimated_cost ?? 0), 0);
 
-  return { items, coveredCount, nextActions, tripTotal, bookedTotal };
+  const decisionsNeeded = active.filter((c) => !isCardBookedOrConfirmed(c)).length;
+  const bookingsMissing = active.filter(
+    (c) =>
+      ["lodging", "transport", "reservation"].includes(normalizeCardType(c)) &&
+      !isCardBookedOrConfirmed(c),
+  ).length;
+
+  return { items, coveredCount, nextActions, tripTotal, bookedTotal, decisionsNeeded, bookingsMissing };
 };
 
 export type Column = {

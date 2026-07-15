@@ -1,9 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, useMemo, type FormEvent } from "react";
+import dynamic from "next/dynamic";
 import { KanbanBoard } from "@/components/KanbanBoard";
-import { ChatSidebar, type ChatMessage } from "@/components/ChatSidebar";
+import type { ChatMessage } from "@/components/ChatSidebar";
 import { diffBoards, type BoardData } from "@/lib/kanban";
+
+const ChatSidebar = dynamic(
+  () => import("@/components/ChatSidebar").then((m) => ({ default: m.ChatSidebar })),
+  { ssr: false },
+);
 
 type SessionResponse = {
   authenticated: boolean;
@@ -16,6 +22,13 @@ type BoardResponse = {
   board: BoardData;
   boardVersion: number;
   schemaVersion: number;
+};
+
+type TripResponse = {
+  name: string;
+  destination: string;
+  startDate: string | null;
+  endDate: string | null;
 };
 
 type AIChatResponse = {
@@ -70,6 +83,7 @@ export const AppShell = () => {
   const [isBoardLoading, setIsBoardLoading] = useState(false);
   const [isSavingBoard, setIsSavingBoard] = useState(false);
   const [boardErrorMessage, setBoardErrorMessage] = useState<string | null>(null);
+  const [trip, setTrip] = useState<TripResponse | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiErrorMessage, setAiErrorMessage] = useState<string | null>(null);
@@ -142,6 +156,22 @@ export const AppShell = () => {
     } catch {
       setChatMessages([]);
       setAiErrorMessage("Unable to load chat history. Try again.");
+    }
+  };
+
+  const fetchTrip = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/trip`, {
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to load trip.");
+      }
+
+      setTrip((await response.json()) as TripResponse);
+    } catch {
+      setTrip(null);
     }
   };
 
@@ -318,7 +348,7 @@ export const AppShell = () => {
       return;
     }
 
-    void Promise.all([fetchBoard(), fetchChatHistory()]);
+    void Promise.all([fetchBoard(), fetchChatHistory(), fetchTrip()]);
   }, [session?.authenticated]);
 
   useEffect(() => {
@@ -376,6 +406,11 @@ export const AppShell = () => {
     if (!pendingProposal || !board) return null;
     return diffBoards(board, pendingProposal);
   }, [pendingProposal, board]);
+
+  const latestActivity = useMemo(() => {
+    const last = chatMessages[chatMessages.length - 1];
+    return last ? last.content : null;
+  }, [chatMessages]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -506,21 +541,21 @@ export const AppShell = () => {
 
     return (
       <div className="flex min-h-screen flex-col">
-        <div className="border-b border-[var(--stroke)] bg-white px-6 py-3">
-          <div className="flex items-center gap-3">
-            <form onSubmit={handleQuickAdd} className="flex flex-1 gap-3">
+        <div className="border-b border-[var(--stroke)] bg-white px-4 py-3 sm:px-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <form onSubmit={handleQuickAdd} className="flex flex-1 gap-2">
               <input
                 type="text"
                 value={quickAddText}
                 onChange={(e) => setQuickAddText(e.target.value)}
-                placeholder="Paste a link or type an idea for the Ideas Inbox..."
+                placeholder="Paste a link or idea..."
                 className="flex-1 rounded-2xl border border-[var(--stroke)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--navy-dark)] outline-none transition focus:border-[var(--primary-blue)]"
                 disabled={isQuickAdding}
               />
               <button
                 type="submit"
                 disabled={!quickAddText.trim() || isQuickAdding}
-                className="rounded-full bg-[var(--secondary-purple)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.2em] text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-full bg-[var(--secondary-purple)] px-4 py-2.5 text-sm font-semibold uppercase tracking-[0.2em] text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isQuickAdding ? "Adding..." : "Add"}
               </button>
@@ -528,7 +563,7 @@ export const AppShell = () => {
             <button
               onClick={toggleChat}
               title="Toggle AI Chat (⌘K)"
-              className={`flex items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-semibold transition ${
+              className={`flex items-center justify-center gap-2 rounded-full border px-4 py-2.5 text-sm font-semibold transition sm:justify-start ${
                 isChatOpen
                   ? "border-[var(--primary-blue)] bg-[var(--primary-blue)] text-white"
                   : "border-[var(--stroke)] bg-white text-[var(--navy-dark)] hover:border-[var(--primary-blue)] hover:text-[var(--primary-blue)]"
@@ -549,6 +584,8 @@ export const AppShell = () => {
             onLogout={handleLogout}
             statusMessage={isSavingBoard ? "Saving board" : undefined}
             errorMessage={boardErrorMessage}
+            tripStartDate={trip?.startDate}
+            latestActivity={latestActivity}
           />
         </div>
         <ChatSidebar

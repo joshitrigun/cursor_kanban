@@ -10,7 +10,6 @@ DEFAULT_OPENROUTER_MODEL = "openai/gpt-oss-120b"
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OPENROUTER_HTTP_REFERER = "http://localhost:8000"
 DEFAULT_APP_NAME = "Project Management MVP"
-DEFAULT_AUTH_PASSWORD = "password"
 DEFAULT_SESSION_SECRET = "pm-dev-session-secret"
 DEFAULT_SESSION_MAX_AGE_SECONDS = 8 * 60 * 60
 DEVELOPMENT_ENVIRONMENTS = {"development", "test"}
@@ -27,12 +26,11 @@ class AppSettingsError(RuntimeError):
 @dataclass(frozen=True)
 class AppSettings:
     app_env: str = "development"
-    auth_username: str = "user"
-    auth_password: str = DEFAULT_AUTH_PASSWORD
     session_secret: str = DEFAULT_SESSION_SECRET
     session_cookie_secure: bool = False
     session_max_age_seconds: int = DEFAULT_SESSION_MAX_AGE_SECONDS
     trusted_origins: tuple[str, ...] = ()
+    trust_proxy_headers: bool = False
     login_rate_limit_attempts: int = DEFAULT_LOGIN_RATE_LIMIT_ATTEMPTS
     login_rate_limit_window_seconds: int = DEFAULT_LOGIN_RATE_LIMIT_WINDOW_SECONDS
     ai_rate_limit_attempts: int = DEFAULT_AI_RATE_LIMIT_ATTEMPTS
@@ -99,14 +97,13 @@ def load_app_settings(env_path: Path | None = None) -> AppSettings:
 
     settings = AppSettings(
         app_env=app_env,
-        auth_username=os.getenv("PM_AUTH_USERNAME", "user"),
-        auth_password=os.getenv("PM_AUTH_PASSWORD", DEFAULT_AUTH_PASSWORD),
         session_secret=os.getenv("PM_SESSION_SECRET", DEFAULT_SESSION_SECRET),
         session_cookie_secure=session_cookie_secure,
         session_max_age_seconds=int(
             os.getenv("PM_SESSION_MAX_AGE_SECONDS", str(DEFAULT_SESSION_MAX_AGE_SECONDS))
         ),
         trusted_origins=parse_origins_env("PM_TRUSTED_ORIGINS"),
+        trust_proxy_headers=parse_bool_env("PM_TRUST_PROXY_HEADERS", default=False),
         login_rate_limit_attempts=int(
             os.getenv(
                 "PM_LOGIN_RATE_LIMIT_ATTEMPTS",

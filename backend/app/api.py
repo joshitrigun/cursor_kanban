@@ -29,11 +29,14 @@ from app.db import (
     BoardVersionConflictError,
     Connection,
     append_chat_exchange_for_username,
+    create_session,
     get_board_for_username,
     get_chat_history_for_username,
     get_trip_for_user,
     get_user_for_auth,
+    is_session_active,
     normalize_card_type,
+    revoke_session,
     sanitize_board_document,
     update_board_for_username,
     upsert_trip_for_user,
@@ -50,6 +53,10 @@ from app.schemas import (
 from app.settings import AppSettings
 
 SESSION_COOKIE_NAME = "pm_session"
+
+# Pre-computed hash for constant-time dummy check when a username is not found.
+# Prevents timing-based username enumeration.
+_DUMMY_HASH: str = bcrypt.hashpw(b"", bcrypt.gensalt(rounds=12)).decode()
 
 router = APIRouter(prefix="/api")
 
@@ -75,9 +82,11 @@ def get_rate_limit_clock(request: Request) -> Callable[[], float]:
 
 
 def get_client_identifier(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",", maxsplit=1)[0].strip()
+    settings = get_settings(request)
+    if settings.trust_proxy_headers:
+        forwarded_for = request.headers.get("x-forwarded-for")
+        if forwarded_for:
+            return forwarded_for.split(",", maxsplit=1)[0].strip()
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
@@ -108,9 +117,11 @@ def enforce_rate_limit(
     store[store_key] = recent_attempts
 
 
-def sign_session_username(request: Request, username: str) -> str:
+def sign_session_username(request: Request, username: str, user_id: str) -> str:
     serializer: URLSafeTimedSerializer = request.app.state.session_serializer
-    return serializer.dumps({"username": username, "session_id": uuid4().hex})
+    db = get_db_connection(request)
+    session_id = create_session(db, user_id)
+    return serializer.dumps({"username": username, "session_id": session_id})
 
 
 def get_request_origin(request: Request) -> Optional[str]:
@@ -150,7 +161,7 @@ def validate_authenticated_origin(request: Request) -> None:
         )
 
 
-def get_authenticated_username(request: Request) -> Optional[str]:
+def decode_session_payload(request: Request) -> Optional[dict]:
     signed_cookie = request.cookies.get(SESSION_COOKIE_NAME)
     if not signed_cookie:
         return None
@@ -166,16 +177,30 @@ def get_authenticated_username(request: Request) -> Optional[str]:
     except (BadSignature, SignatureExpired):
         return None
 
-    username = payload.get("username") if isinstance(payload, dict) else None
-    if not username:
+    return payload if isinstance(payload, dict) else None
+
+
+def get_authenticated_username(request: Request) -> Optional[str]:
+    payload = decode_session_payload(request)
+    if payload is None:
         return None
 
-    # Validate the user still exists in the database.
+    username = payload.get("username")
+    session_id = payload.get("session_id")
+    if not username or not session_id:
+        return None
+
     db = get_db_connection(request)
+
+    # Validate the user still exists in the database.
     user_row = db.execute(
         "SELECT id FROM users WHERE username = ?", (username,)
     ).fetchone()
     if user_row is None:
+        return None
+
+    # Validate the session hasn't been revoked (e.g. by a prior logout).
+    if not is_session_active(db, session_id):
         return None
 
     return username
@@ -226,9 +251,10 @@ def login(
     )
 
     user_row = get_user_for_auth(db, payload.username)
-    if user_row is None or not user_row["hashed_password"] or not bcrypt.checkpw(
-        payload.password.encode(), user_row["hashed_password"].encode()
-    ):
+    password_hash = (
+        user_row["hashed_password"] if user_row and user_row["hashed_password"] else _DUMMY_HASH
+    )
+    if not user_row or not bcrypt.checkpw(payload.password.encode(), password_hash.encode()):
         response.status_code = status.HTTP_401_UNAUTHORIZED
         return {
             "authenticated": False,
@@ -237,7 +263,7 @@ def login(
 
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
-        value=sign_session_username(request, user_row["username"]),
+        value=sign_session_username(request, user_row["username"], user_row["id"]),
         httponly=True,
         samesite="lax",
         secure=settings.session_cookie_secure,
@@ -251,10 +277,14 @@ def login(
 def logout(
     request: Request,
     response: Response,
+    db: Connection = Depends(get_db_connection),
     _username: str = Depends(require_authenticated_username),
 ) -> Response:
     validate_authenticated_origin(request)
     settings = get_settings(request)
+    payload = decode_session_payload(request)
+    if payload and payload.get("session_id"):
+        revoke_session(db, payload["session_id"])
     response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
     response.set_cookie(
         key=SESSION_COOKIE_NAME,

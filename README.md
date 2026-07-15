@@ -13,7 +13,7 @@ AI-powered family trip planner built from a Kanban MVP. The app gives each famil
 - Backend: FastAPI, SQLite
 - AI: OpenRouter using `openai/gpt-oss-120b`
 - Local package/runtime: Python virtualenv, npm
-- Deployment target: Vercel frontend + Railway backend
+- Deployment target: Railway (Docker — FastAPI serves the static Next.js build in one container)
 
 ## Key Features
 
@@ -81,13 +81,15 @@ PM_SESSION_SECRET=replace_with_a_long_random_secret
 PM_TRUSTED_ORIGINS=http://localhost:3000
 ```
 
-Production Railway variables should also include:
+Production Railway environment variables:
 
 ```text
 PM_ENV=production
+PM_SESSION_SECRET=replace_with_a_long_random_secret
 PM_SESSION_COOKIE_SECURE=true
 PM_DB_PATH=/app/data/pm.db
-PM_TRUSTED_ORIGINS=https://your-vercel-app.vercel.app
+PM_TRUSTED_ORIGINS=https://your-railway-app.railway.app
+PM_TRUST_PROXY_HEADERS=true
 ```
 
 ## Tests
